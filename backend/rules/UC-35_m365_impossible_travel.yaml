@@ -1,0 +1,21 @@
+id: UC-35
+name: Voyage impossible (Microsoft 365)
+type: threshold
+severity: high
+description: >
+  Un même compte s'est connecté avec succès depuis au moins deux pays différents en moins de deux heures :
+  physiquement impossible, sauf VPN personnel ou relais d'un opérateur. Signe fort d'un compte utilisé en parallèle
+  par un tiers.
+filter:
+  event.module: m365
+  event.action: logon
+  event.outcome: success
+  source.geo.country_iso_code: {exists: true}
+  source.as.organization.name: {not_contains: [Microsoft]}
+group_by: [user.name]
+window: 2h
+condition: count_distinct(source.geo.country_iso_code) >= 2
+title: "Voyage impossible : {user.name} connecté depuis {value} pays en 2 h"
+dedup_window: 12h
+mitre: [T1078.004]
+playbook: playbooks/m365-account.md

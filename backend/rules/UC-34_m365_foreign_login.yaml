@@ -1,0 +1,19 @@
+id: UC-34
+name: Connexion Microsoft 365 réussie depuis l'étranger
+type: match
+severity: medium
+description: >
+  Un compte s'est connecté avec succès à Microsoft 365 (messagerie, Teams, OneDrive…) depuis un pays qui ne fait pas
+  partie des pays habituels (Paramètres › Détection). Normal pour un agent en déplacement ; sinon, le mot de passe
+  (et éventuellement la MFA) est compromis.
+filter:
+  event.module: m365
+  event.action: logon
+  event.outcome: success
+  source.geo.country_iso_code: {exists: true, not_in: $home_countries}
+  source.as.organization.name: {not_contains: [Microsoft]}
+group_by: [user.name, source.geo.country_iso_code]
+title: "Connexion Microsoft 365 de {user.name} depuis l'étranger : {source.geo.country_iso_code} ({source.ip})"
+dedup_window: 24h
+mitre: [T1078.004]
+playbook: playbooks/m365-account.md

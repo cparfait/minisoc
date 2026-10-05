@@ -1,0 +1,61 @@
+[project]
+name = "minisoc"
+version = "0.1.0"
+description = "Mini-SOC : centralisation et alerting des journaux de sécurité"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29",
+    "redis>=5.0",
+    "clickhouse-connect[async]>=0.8",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "argon2-cffi>=23.1",
+    "pyotp>=2.9",
+    "qrcode>=7.4",
+    "cryptography>=43",
+    "aiosmtplib>=3.0",
+    "tzdata>=2024.1",
+    "ldap3>=2.9.1",
+    "anthropic>=0.69",
+    "defusedxml>=0.7",
+    "alembic>=1.13",
+    "maxminddb>=2.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["minisoc*"]
+
+[tool.setuptools.package-data]
+minisoc = ["migrations/script.py.mako", "guides/*.md", "detection_suggestions.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "S", "ASYNC"]
+ignore = [
+    "S101",  # assert dans les tests et invariants internes
+    "S104",  # écoute sur 0.0.0.0 : voulu dans un conteneur
+    "S608",  # SQL construit à partir de colonnes en liste blanche ; valeurs toujours liées
+    "B008",  # Depends() dans les signatures FastAPI
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]

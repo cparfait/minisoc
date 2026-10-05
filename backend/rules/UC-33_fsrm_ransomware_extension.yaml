@@ -1,0 +1,16 @@
+id: UC-33
+name: Fichier de rançongiciel bloqué sur un partage (FSRM)
+type: match
+severity: critical
+description: >
+  Le gestionnaire de ressources du serveur de fichiers (FSRM) a bloqué l'écriture d'un fichier dont le nom ou
+  l'extension correspond à un rançongiciel connu (.locky, .encrypted, note de rançon…). Le poste de l'utilisateur
+  indiqué est très probablement en train de chiffrer les partages.
+filter:
+  event.module: windows
+  event.action: ransomware_file_blocked
+group_by: [user.name]
+title: "Rançongiciel probable : {user.name} a tenté d'écrire {file.path} sur {host.name}"
+dedup_window: 1h
+mitre: [T1486]
+playbook: playbooks/mass-file-rename.md

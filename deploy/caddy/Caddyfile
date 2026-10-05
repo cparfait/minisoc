@@ -1,0 +1,42 @@
+{
+	admin off
+}
+
+{$MINISOC_HOSTNAME} {
+	# Certificat émis par l'autorité locale de Caddy (réseau interne).
+	# Remplacer par `tls /chemin/cert.pem /chemin/key.pem` pour un certificat de votre PKI.
+	tls internal
+
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		-Server
+	}
+
+	# La documentation interactive de l'API n'est pas exposée
+	handle /api/docs* {
+		respond 404
+	}
+	handle /api/openapi.json {
+		respond 404
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 10MB
+		}
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

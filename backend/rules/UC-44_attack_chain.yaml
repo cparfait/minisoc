@@ -1,0 +1,16 @@
+id: UC-44
+name: Chaîne d'attaque sur une machine ou un compte
+type: match
+severity: critical
+description: >
+  En 24 heures, une même machine ou un même compte enchaîne au moins trois tactiques MITRE ATT&CK différentes, dont
+  une étape avancée (exécution, persistance, élévation de privilèges, accès aux identifiants, mouvement latéral,
+  commande et contrôle, exfiltration, impact). Un incident est ouvert automatiquement (réglable).
+filter:
+  event.module: {eq: "__calcul__"}
+group_by: [host.name]
+title: "Chaîne d'attaque : {host.name|user.name} ({value} tactiques en 24 h)"
+dedup_window: 24h
+storm_limit: 0
+mitre: [T1078]
+playbook: playbooks/attack-chain.md

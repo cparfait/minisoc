@@ -1,0 +1,20 @@
+id: UC-37
+name: Échecs répétés sur un compte Microsoft 365 depuis l'étranger
+type: threshold
+severity: medium
+description: >
+  Un compte reçoit de nombreux mauvais mots de passe depuis l'étranger : il est visé par une attaque. Sans gravité
+  tant qu'aucune connexion ne réussit (règles UC-34, UC-35), mais à surveiller, et la MFA doit être active sur ce
+  compte.
+filter:
+  event.module: m365
+  event.outcome: failure
+  event.reason: [invalid_credentials, account_locked]
+  source.geo.country_iso_code: {exists: true, not_in: $home_countries}
+group_by: [user.name]
+window: 1h
+condition: count() >= 10
+title: "{user.name} : {value} échecs de connexion Microsoft 365 depuis l'étranger en 1 h"
+dedup_window: 24h
+mitre: [T1110.001]
+playbook: playbooks/m365-account.md

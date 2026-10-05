@@ -1,0 +1,17 @@
+id: UC-42
+name: IOC connu trouvé dans les journaux
+type: match
+severity: high
+description: >
+  Un indicateur de compromission (adresse IP, domaine, empreinte, URL) de la liste de la DSI ou d'une liste
+  externe apparaît dans les journaux, y compris dans l'historique (chasse rétroactive). Les alertes sont créées
+  par la chasse aux IOC (page IOC), pas par la correspondance événement par événement.
+# Filtre jamais vérifié : la règle sert de modèle aux alertes créées par minisoc/ioc.py
+filter:
+  event.module: {eq: "__chasse_ioc__"}
+group_by: [threat.intel, host.name]
+title: "IOC trouvé : {threat.intel} ({host.name})"
+dedup_window: 7d
+storm_limit: 20
+mitre: [T1071]
+playbook: playbooks/ioc-match.md

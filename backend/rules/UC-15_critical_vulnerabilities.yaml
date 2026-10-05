@@ -1,0 +1,16 @@
+id: UC-15
+name: Vulnérabilités critiques non corrigées
+type: match
+severity: from_event
+description: >
+  NinjaOne signale de nouvelles vulnérabilités critiques non corrigées sur un appareil (sévérité haute pour un
+  serveur, moyenne pour un poste). Les correctifs en attente sont indiqués ; vérifier en priorité les serveurs et les
+  postes exposés à Internet, et la page Veille pour les vulnérabilités activement exploitées.
+filter:
+  event.module: ninjaone
+  event.action: critical_vulnerabilities
+group_by: [host.name]
+title: "{message}"
+dedup_window: 7d
+mitre: [T1190]
+playbook: playbooks/vulnerabilities.md

@@ -1,0 +1,16 @@
+id: UC-14
+name: Verrouillages de comptes en masse
+type: threshold
+severity: high
+description: >
+  De nombreux comptes AD se verrouillent en peu de temps : pulvérisation de mots de passe en cours (souvent
+  depuis un poste interne compromis ou via le VPN).
+filter:
+  event.module: windows
+  event.action: account_locked
+window: 15m
+condition: count_distinct(user.name) >= 10
+title: "{value} comptes AD verrouillés en 15 min"
+dedup_window: 24h
+mitre: [T1110.003]
+playbook: playbooks/mass-lockouts.md

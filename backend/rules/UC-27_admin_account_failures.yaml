@@ -1,0 +1,19 @@
+id: UC-27
+name: Échecs d'authentification d'un compte administrateur
+type: threshold
+severity: high
+description: >
+  Un compte administrateur échoue à s'authentifier de façon répétée. Un administrateur qui se trompe une ou deux
+  fois est normal ; au-delà, quelqu'un essaie probablement de deviner son mot de passe.
+filter:
+  event.module: windows
+  event.category: authentication
+  event.outcome: failure
+  user.roles: {contains: admin}
+group_by: [user.name]
+window: 15m
+condition: count() >= 5
+title: "Compte administrateur {user.name} : {value} échecs d'authentification en 15 min"
+dedup_window: 12h
+mitre: [T1110]
+playbook: playbooks/sensitive-accounts.md

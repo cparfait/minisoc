@@ -1,0 +1,20 @@
+id: UC-32
+name: Renommages ou suppressions de fichiers en masse
+type: threshold
+severity: critical
+description: >
+  Un même compte supprime ou renomme des centaines de fichiers en quelques minutes sur un serveur de fichiers :
+  comportement typique d'un rançongiciel qui chiffre un partage (chaque fichier est renommé avec une nouvelle
+  extension). Peut aussi être un déplacement ou un archivage volontaire : à confirmer immédiatement avec
+  l'utilisateur, le temps compte.
+filter:
+  event.module: windows
+  event.action: file_delete
+group_by: [user.name, host.name]
+window: 5m
+condition: count_distinct(file.path) >= 300
+title: "{value} fichiers supprimés ou renommés en 5 min par {user.name} sur {host.name}"
+dedup_window: 2h
+storm_limit: 3
+mitre: [T1486, T1485]
+playbook: playbooks/mass-file-rename.md

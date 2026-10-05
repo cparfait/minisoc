@@ -1,0 +1,26 @@
+id: UC-03b
+name: Connexion VPN réussie sur un compte attaqué
+type: sequence
+severity: critical
+description: >
+  Un compte ayant subi des échecs répétés se connecte avec succès : vérifier qu'il s'agit bien
+  de son utilisateur légitime.
+sequence:
+  first:
+    event.module: sophos_xgs
+    event.category: authentication
+    event.outcome: failure
+  min_count: 5
+  within: 24h
+  then:
+    event.module: sophos_xgs
+    event.category: authentication
+    event.outcome: success
+    network.service: [ssl_vpn, ipsec, l2tp, user_portal, admin_console]
+  join_on: user.name
+window: 15m
+title: "Connexion réussie du compte {user.name} après des échecs répétés"
+dedup_window: 24h
+qualify: auth_success_user
+mitre: [T1110, T1078.002, T1133]
+playbook: playbooks/vpn-success-after-failures.md

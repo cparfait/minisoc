@@ -1,0 +1,17 @@
+id: UC-10
+name: Accès à l'administration du pare-feu depuis l'extérieur
+type: match
+severity: critical
+description: >
+  Tentative (réussie ou non) de connexion à la console d'administration du pare-feu depuis une
+  adresse hors des réseaux autorisés. Adapter la liste `not_cidr` à vos réseaux d'administration.
+filter:
+  event.module: sophos_xgs
+  event.category: authentication
+  network.service: admin_console
+  source.ip: {not_cidr: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]}
+group_by: [source.ip]
+title: "Accès à l'administration du pare-feu depuis {source.ip} ({event.outcome})"
+dedup_window: 24h
+mitre: [T1133, T1190, T1110]
+playbook: playbooks/firewall-admin.md

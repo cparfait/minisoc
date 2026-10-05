@@ -1,0 +1,17 @@
+id: UC-02b
+name: Force brute VPN distribuée tous comptes (botnet)
+type: threshold
+severity: critical
+description: >
+  De nombreuses adresses IP différentes échouent à se connecter au VPN, tous comptes confondus.
+filter:
+  event.module: sophos_xgs
+  event.category: authentication
+  event.outcome: failure
+  network.service: [ssl_vpn, ipsec, l2tp, user_portal]
+window: 1h
+condition: count_distinct(source.ip) >= 50
+title: "Botnet sur le VPN : {value} IP distinctes en échec en 1 h"
+dedup_window: 24h
+mitre: [T1110.003, T1110.004, T1133]
+playbook: playbooks/vpn-bruteforce.md

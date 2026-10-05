@@ -1,0 +1,155 @@
+name: minisoc
+
+x-backend: &backend
+  build:
+    context: ./backend
+    target: runtime
+  image: minisoc-backend:latest
+  restart: unless-stopped
+  env_file: .env
+  # Archives scellées des événements (minisoc/archives.py) : à copier hors de la VM avec les sauvegardes
+  volumes: [archives:/var/lib/minisoc/archives]
+  environment:
+    MINISOC_DATABASE_URL: postgresql+asyncpg://minisoc:${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD}@postgres:5432/minisoc
+    MINISOC_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?définir CLICKHOUSE_PASSWORD}
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    clickhouse: { condition: service_healthy }
+  networks: [backend]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: minisoc
+      POSTGRES_USER: minisoc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U minisoc -d minisoc"]
+      interval: 5s
+      retries: 20
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "300", "1"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+    networks: [backend]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: minisoc
+      CLICKHOUSE_USER: minisoc
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes: [chdata:/var/lib/clickhouse]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      retries: 30
+    networks: [backend]
+
+  api:
+    <<: *backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 30s
+      retries: 3
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "minisoc.worker"]
+    volumes:
+      # Bases GeoIP (MaxMind GeoLite2 ou DB-IP Lite, .mmdb) : facultatives, relues à chaud
+      - ./data/geoip:/app/data/geoip:ro
+      # La liste remplace celle du modèle commun : le volume des archives est donc repris ici
+      - archives:/var/lib/minisoc/archives
+
+  # Mise à jour automatique des bases GeoLite2 (MaxMind) : activée avec COMPOSE_PROFILES=geoip dans .env
+  geoipupdate:
+    image: ghcr.io/maxmind/geoipupdate:latest
+    profiles: [geoip]
+    restart: unless-stopped
+    environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
+      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      GEOIPUPDATE_EDITION_IDS: "GeoLite2-City GeoLite2-ASN"
+      GEOIPUPDATE_FREQUENCY: "72"  # heures ; la licence impose d'utiliser des bases à jour
+    volumes:
+      - ./data/geoip:/usr/share/GeoIP
+    networks: [backend]
+
+  # Réception syslog des équipements (Sophos, Vectra, Varonis…) avec tampon disque, relayée à l'API
+  vector:
+    image: timberio/vector:0.48.0-alpine
+    restart: unless-stopped
+    # Recharge la configuration quand vector.yaml change (sinon : docker compose up -d --force-recreate vector)
+    command: ["--config", "/etc/vector/vector.yaml", "--watch-config"]
+    environment:
+      MINISOC_INGEST_TOKEN: ${MINISOC_INGEST_TOKEN:?définir MINISOC_INGEST_TOKEN}
+    volumes:
+      - ./deploy/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - vectordata:/var/lib/vector
+    ports:
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/udp"
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/tcp"
+    depends_on: [api]
+    networks: [backend]
+
+  # Syslog chiffré (TLS, TCP 6514) : activé avec COMPOSE_PROFILES=…,syslog-tls après ./scripts/syslog_cert.sh
+  vector-tls:
+    image: timberio/vector:0.48.0-alpine
+    profiles: ["syslog-tls"]
+    restart: unless-stopped
+    command: ["--config", "/etc/vector/vector-tls.yaml", "--watch-config"]
+    environment:
+      MINISOC_INGEST_TOKEN: ${MINISOC_INGEST_TOKEN:?définir MINISOC_INGEST_TOKEN}
+    volumes:
+      - ./deploy/vector/vector-tls.yaml:/etc/vector/vector-tls.yaml:ro
+      - ./data/syslog-tls:/etc/vector/tls:ro
+      - vectortlsdata:/var/lib/vector
+    ports:
+      - "${SYSLOG_BIND:-0.0.0.0}:6514:6514/tcp"
+    depends_on: [api]
+    networks: [backend]
+
+  # Interface web + reverse proxy HTTPS (seul point d'entrée HTTP)
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: minisoc-web:latest
+    restart: unless-stopped
+    environment:
+      MINISOC_HOSTNAME: ${MINISOC_HOSTNAME:-localhost}
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:443:443"
+      - "${WEB_BIND:-0.0.0.0}:80:80"
+    volumes:
+      - caddydata:/data
+    depends_on: [api]
+    networks: [backend]
+
+volumes:
+  pgdata:
+  redisdata:
+  chdata:
+  vectordata:
+  vectortlsdata:
+  caddydata:
+  archives:
+
+networks:
+  backend:

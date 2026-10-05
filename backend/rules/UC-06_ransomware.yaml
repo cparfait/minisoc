@@ -1,0 +1,16 @@
+id: UC-06
+name: Comportement de rançongiciel
+type: match
+severity: critical
+description: >
+  Détection d'un comportement de chiffrement de masse ou d'une protection anti-rançongiciel déclenchée.
+filter:
+  any:
+    - event.action: ransomware_detected
+    - rule.name: {contains: [ransom, chiffrement massif, mass encryption]}
+    - threat.name: {contains: ransom}
+group_by: [host.name]
+title: "Rançongiciel suspecté sur {host.name}"
+dedup_window: 24h
+mitre: [T1486, T1490]
+playbook: playbooks/ransomware.md

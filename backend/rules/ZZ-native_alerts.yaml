@@ -1,0 +1,18 @@
+id: NATIVE
+name: Alerte native d'un outil de sécurité
+type: match
+fallback: true
+severity: from_event
+description: >
+  Reprise des alertes émises par les outils (EDR, antivirus, NDR, IPS…) de sévérité moyenne ou plus,
+  lorsqu'aucune règle plus précise ne s'applique.
+filter:
+  event.kind: alert
+  event.severity: {gte: 2}
+group_by: [event.module, host.name, rule.name]
+# Une alerte par poste et par détection ; regroupement seulement au-delà de 30 postes en une heure (épidémie)
+storm_limit: 30
+title: "{event.module} : {rule.name} ({host.name})"
+# 72 h : une détection quotidienne (tâche planifiée, audit…) reste une seule alerte avec un compteur
+dedup_window: 72h
+playbook: playbooks/native-alert.md

@@ -1,0 +1,17 @@
+id: UC-23
+name: Compte sensible verrouillé
+type: match
+severity: high
+description: >
+  Un compte administrateur ou un compte de service vient d'être verrouillé. Pour un compte de service, c'est souvent
+  un mot de passe changé mais pas mis à jour sur un serveur ou une tâche planifiée (panne en vue) ; pour un compte
+  administrateur, une tentative de deviner son mot de passe. Le poste indiqué est celui d'où viennent les échecs.
+filter:
+  event.module: windows
+  event.action: account_locked
+  user.roles: {ne: ""}
+group_by: [user.name]
+title: "Compte sensible verrouillé : {user.name} ({user.roles}), échecs venant de {host.name}"
+dedup_window: 4h
+mitre: [T1110]
+playbook: playbooks/account-lockout.md

@@ -1,0 +1,16 @@
+id: UC-43
+name: Risque cumulé élevé sur une machine ou un compte
+type: match
+severity: high
+description: >
+  Plusieurs détections, chacune parfois anodine, s'accumulent sur une même machine ou un même compte en 7 jours :
+  leur somme (sévérité, nombre de détections différentes, tactiques MITRE, criticité de l'inventaire) dépasse le
+  seuil réglé dans Paramètres › Détection. Calculée toutes les 5 minutes (minisoc/risk.py).
+# Filtre jamais vérifié : la règle sert de modèle aux alertes calculées
+filter:
+  event.module: {eq: "__calcul__"}
+group_by: [host.name]
+title: "Risque cumulé élevé : {host.name|user.name} (score {value})"
+dedup_window: 24h
+storm_limit: 0
+playbook: playbooks/risk-score.md

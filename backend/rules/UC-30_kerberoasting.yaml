@@ -1,0 +1,20 @@
+id: UC-30
+name: Kerberoasting (tickets de service RC4 en série)
+type: threshold
+severity: high
+description: >
+  Un même compte demande des tickets Kerberos chiffrés en RC4 pour plusieurs comptes de service en peu de temps :
+  technique classique pour récupérer hors ligne le mot de passe des comptes de service. Les clients récents
+  utilisent AES ; RC4 en série depuis un poste utilisateur est très suspect.
+filter:
+  event.module: windows
+  event.action: service_ticket
+  threat.name: [rc4, des]
+  rule.name: {not_contains: ["$", krbtgt]}
+group_by: [user.name]
+window: 10m
+condition: count_distinct(rule.name) >= 3
+title: "Kerberoasting probable : {user.name} a demandé {value} tickets RC4 en 10 min"
+dedup_window: 24h
+mitre: [T1558.003]
+playbook: playbooks/kerberoasting.md

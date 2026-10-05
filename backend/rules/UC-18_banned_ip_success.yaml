@@ -1,0 +1,16 @@
+id: UC-18
+name: Connexion réussie depuis une IP bannie par CrowdSec
+type: match
+severity: critical
+description: >
+  Une adresse IP sous décision CrowdSec (détection locale ou liste communautaire) obtient une connexion
+  réussie (VPN, portail, administration, poste) : identifiants probablement compromis.
+filter:
+  event.category: authentication
+  event.outcome: success
+  threat.intel: {contains: "crowdsec:"}
+group_by: [source.ip, user.name]
+title: "Connexion réussie de {user.name} depuis {source.ip}, bannie par CrowdSec ({threat.intel})"
+dedup_window: 24h
+mitre: [T1078, T1110, T1133]
+playbook: playbooks/vpn-success-after-failures.md

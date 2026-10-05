@@ -1,0 +1,17 @@
+id: UC-19
+name: Hôte ou compte prioritaire pour Vectra (quadrant critique)
+type: match
+severity: critical
+description: >
+  Vectra classe un poste, un serveur ou un compte dans son quadrant « critique » : score de menace et score de
+  certitude tous deux élevés, après corrélation de plusieurs détections réseau (commande et contrôle, déplacement
+  latéral, reconnaissance, exfiltration). C'est la priorité absolue de la console Vectra.
+filter:
+  event.module: vectra
+  event.action: [host_scoring, account_scoring]
+  event.severity: {gte: 4}
+group_by: [host.name, user.name]
+title: "Vectra : {host.name|user.name} en priorité critique ({message})"
+dedup_window: 12h
+mitre: [T1071, T1021]
+playbook: playbooks/vectra-critical.md

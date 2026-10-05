@@ -1,0 +1,15 @@
+id: UC-40
+name: Rôle d'administration Entra attribué ou MFA désactivée
+type: match
+severity: high
+description: >
+  Un compte a reçu un rôle d'administration Entra ID / Microsoft 365, ou la MFA d'un compte a été désactivée.
+  À confirmer avec l'auteur : c'est ainsi qu'un attaquant s'installe durablement dans le tenant.
+filter:
+  event.module: m365
+  event.action: [role_member_added, mfa_disabled]
+group_by: [user.name, event.action]
+title: "Microsoft 365 : {message}"
+dedup_window: 1h
+mitre: [T1098.003]
+playbook: playbooks/m365-account.md

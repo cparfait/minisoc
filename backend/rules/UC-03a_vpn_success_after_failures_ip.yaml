@@ -1,0 +1,26 @@
+id: UC-03a
+name: Connexion VPN réussie depuis une IP en échec
+type: sequence
+severity: critical
+description: >
+  Une IP ayant cumulé des échecs d'authentification obtient ensuite une connexion réussie :
+  mot de passe probablement trouvé.
+sequence:
+  first:
+    event.module: sophos_xgs
+    event.category: authentication
+    event.outcome: failure
+  min_count: 5
+  within: 24h
+  then:
+    event.module: sophos_xgs
+    event.category: authentication
+    event.outcome: success
+    network.service: [ssl_vpn, ipsec, l2tp, user_portal, admin_console]
+  join_on: source.ip
+window: 15m
+title: "Connexion réussie depuis {source.ip} après des échecs répétés"
+dedup_window: 24h
+qualify: auth_success_ip
+mitre: [T1110, T1078.002, T1133]
+playbook: playbooks/vpn-success-after-failures.md

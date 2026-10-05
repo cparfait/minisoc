@@ -1,0 +1,52 @@
+# Réception syslog chiffrée (TLS, TCP 6514) : service « vector-tls », activé avec COMPOSE_PROFILES=…,syslog-tls.
+# Certificat et clé générés par scripts/syslog_cert.sh dans data/syslog-tls/ (montés en lecture seule).
+# Même traitement que le syslog en clair : horodatage de réception, tampon disque, relais vers l'API.
+data_dir: /var/lib/vector
+
+sources:
+  syslog_tls:
+    type: socket
+    mode: tcp
+    address: 0.0.0.0:6514
+    max_length: 65536
+    tls:
+      enabled: true
+      crt_file: /etc/vector/tls/server.crt
+      key_file: /etc/vector/tls/server.key
+      # Pas d'authentification des émetteurs par certificat client (les équipements n'en ont pas tous)
+      verify_certificate: false
+
+transforms:
+  tag_tls:
+    type: remap
+    inputs: [syslog_tls]
+    source: |
+      .received_at = format_timestamp!(now(), format: "%+")
+      .peer = del(.host)
+      del(.source_type)
+      del(.port)
+      del(.timestamp)
+      del(.tls_peer)
+
+sinks:
+  minisoc_api:
+    type: http
+    inputs: [tag_tls]
+    uri: http://api:8000/api/ingest/syslog
+    method: post
+    encoding:
+      codec: json
+    auth:
+      strategy: bearer
+      token: "${MINISOC_INGEST_TOKEN}"
+    batch:
+      max_events: 500
+      timeout_secs: 1
+    buffer:
+      type: disk
+      max_size: 1073741824
+      when_full: block
+    request:
+      timeout_secs: 10
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 10

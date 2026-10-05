@@ -1,0 +1,14 @@
+id: UC-13
+name: Journal de sécurité effacé
+type: match
+severity: high
+description: >
+  Le journal de sécurité Windows a été effacé : un attaquant efface souvent ses traces ainsi.
+filter:
+  event.module: windows
+  event.action: log_cleared
+group_by: [host.name]
+title: "Journal de sécurité effacé sur {host.name} par {user.name}"
+dedup_window: 24h
+mitre: [T1070.001]
+playbook: playbooks/log-cleared.md

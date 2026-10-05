@@ -1,0 +1,17 @@
+id: UC-29
+name: Mot de passe réinitialisé ou compte réactivé (compte sensible)
+type: match
+severity: high
+description: >
+  Le mot de passe d'un compte administrateur ou de service a été réinitialisé par un autre compte, ou un tel compte
+  a été réactivé. À confirmer avec l'auteur : un attaquant qui contrôle un compte du support peut ainsi prendre la
+  main sur un compte à privilèges.
+filter:
+  event.module: windows
+  event.action: [password_reset, account_enabled]
+  user.roles: {ne: ""}
+group_by: [user.name, event.action]
+title: "Compte sensible {user.name} : {event.action} ({threat.name})"
+dedup_window: 1h
+mitre: [T1098]
+playbook: playbooks/sensitive-accounts.md

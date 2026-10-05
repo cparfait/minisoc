@@ -1,0 +1,24 @@
+id: UC-28
+name: Compte administrateur utilisé depuis un nouveau poste
+type: novelty
+severity: medium
+description: >
+  Un compte administrateur ouvre une session depuis un poste ou serveur jamais utilisé par ce compte en 30 jours.
+  Normal pour une nouvelle machine d'administration ; suspect depuis un poste bureautique (compte volé, rebond
+  d'un attaquant).
+filter:
+  event.module: windows
+  event.category: authentication
+  event.action: logon
+  event.outcome: success
+  user.roles: {contains: admin}
+group_by: [user.name]
+novelty:
+  field: host.name
+  history: 30d
+  min_history: 5
+window: 15m
+title: "Compte administrateur {user.name} utilisé depuis un nouveau poste : {host.name}"
+dedup_window: 7d
+mitre: [T1078.002, T1021]
+playbook: playbooks/sensitive-accounts.md

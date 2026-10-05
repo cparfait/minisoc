@@ -1,0 +1,16 @@
+id: UC-39
+name: Règle de transfert de messagerie créée
+type: match
+severity: high
+description: >
+  Une règle de boîte aux lettres ou un transfert automatique renvoie des messages vers une autre adresse. Technique
+  très courante après le vol d'un compte de messagerie : l'attaquant reçoit discrètement les courriels (factures,
+  échanges avec les fournisseurs) pour préparer une fraude au virement.
+filter:
+  event.module: m365
+  event.action: mail_forwarding_rule
+group_by: [user.name, threat.name]
+title: "Transfert de messagerie de {user.name} vers {threat.name}"
+dedup_window: 24h
+mitre: [T1114.003]
+playbook: playbooks/m365-account.md

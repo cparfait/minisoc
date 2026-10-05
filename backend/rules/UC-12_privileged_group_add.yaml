@@ -1,0 +1,33 @@
+id: UC-12
+name: Ajout à un groupe à privilèges
+type: match
+severity: high
+description: >
+  Un compte a été ajouté à un groupe d'administration de l'Active Directory. À confirmer avec l'auteur du
+  changement : c'est une étape classique d'un attaquant qui veut s'installer durablement.
+filter:
+  event.module: windows
+  event.action: group_member_added
+  rule.name:
+    - Domain Admins
+    - Admins du domaine
+    - Enterprise Admins
+    - Administrateurs de l'entreprise
+    - Schema Admins
+    - Administrateurs du schéma
+    - Administrators
+    - Administrateurs
+    - Account Operators
+    - Opérateurs de compte
+    - Backup Operators
+    - Opérateurs de sauvegarde
+    - Server Operators
+    - Opérateurs de serveur
+    - DnsAdmins
+    - Group Policy Creator Owners
+    - Propriétaires créateurs de la stratégie de groupe
+group_by: [rule.name, user.name]
+title: "{user.name} ajouté au groupe {rule.name} ({threat.name})"
+dedup_window: 24h
+mitre: [T1098]
+playbook: playbooks/privileged-group.md

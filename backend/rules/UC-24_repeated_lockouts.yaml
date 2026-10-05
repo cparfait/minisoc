@@ -1,0 +1,19 @@
+id: UC-24
+name: Verrouillages répétés d'un même compte
+type: threshold
+severity: medium
+description: >
+  Un même compte se verrouille encore et encore : mot de passe mémorisé et périmé sur un appareil (téléphone,
+  lecteur réseau, session restée ouverte, tâche planifiée) ou attaque ciblée. Le poste à l'origine des échecs est
+  dans les événements liés.
+filter:
+  event.module: windows
+  event.action: account_locked
+group_by: [user.name]
+window: 24h
+condition: count() >= 3
+title: "{user.name} verrouillé {value} fois en 24 h"
+dedup_window: 24h
+storm_limit: 10
+mitre: [T1110]
+playbook: playbooks/account-lockout.md

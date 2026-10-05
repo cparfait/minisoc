@@ -1,0 +1,21 @@
+id: UC-01
+name: Échecs VPN répétés depuis une IP
+type: threshold
+severity: high
+description: >
+  Nombreux échecs d'authentification VPN ou portail utilisateur depuis une même adresse IP :
+  attaque (force brute, pulvérisation) ou utilisateur légitime en difficulté. Voir la qualification.
+filter:
+  event.module: sophos_xgs
+  event.category: authentication
+  event.outcome: failure
+  network.service: [ssl_vpn, ipsec, l2tp, user_portal]
+group_by: [source.ip]
+window: 10m
+condition: count() >= 20
+title: "Échecs VPN répétés depuis {source.ip} : {value} en 10 min"
+dedup_window: 24h
+storm_limit: 3  # au-delà de 3 alertes en 1 h : regroupement dans une seule alerte
+qualify: auth_source_ip  # distingue attaque et erreur d'utilisateur (voir minisoc/qualify.py)
+mitre: [T1110.001, T1110.003, T1133]
+playbook: playbooks/vpn-bruteforce.md

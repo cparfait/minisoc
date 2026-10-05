@@ -1,0 +1,53 @@
+# Réception syslog brute (UDP et TCP 514). L'analyse est faite par le worker Python :
+# Vector se limite à recevoir, horodater, mettre en tampon disque et relayer à l'API.
+data_dir: /var/lib/vector
+
+sources:
+  syslog_udp:
+    type: socket
+    mode: udp
+    address: 0.0.0.0:514
+    max_length: 65536
+  syslog_tcp:
+    type: socket
+    mode: tcp
+    address: 0.0.0.0:514
+    max_length: 65536
+  # Pour du syslog TLS (port 6514), ajouter une source socket tcp avec un bloc `tls`
+  # (certificat et clé montés dans le conteneur).
+
+transforms:
+  tag:
+    type: remap
+    inputs: [syslog_udp, syslog_tcp]
+    source: |
+      .received_at = format_timestamp!(now(), format: "%+")
+      .peer = del(.host)
+      del(.source_type)
+      del(.port)
+      del(.timestamp)
+
+sinks:
+  minisoc_api:
+    type: http
+    inputs: [tag]
+    uri: http://api:8000/api/ingest/syslog
+    method: post
+    encoding:
+      codec: json
+    auth:
+      strategy: bearer
+      token: "${MINISOC_INGEST_TOKEN}"
+    batch:
+      max_events: 500
+      timeout_secs: 1
+    buffer:
+      type: disk
+      max_size: 1073741824 # 1 Gio : plusieurs heures de journaux si l'API est indisponible
+      when_full: block
+    # Délais courts : après un redémarrage de l'API (nouvelle adresse de conteneur), Vector se reconnecte
+    # en quelques secondes au lieu d'attendre le délai par défaut de 60 s puis un recul exponentiel.
+    request:
+      timeout_secs: 10
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 10

@@ -1,0 +1,14 @@
+id: UC-16
+name: Source silencieuse
+type: absence
+severity: medium
+description: >
+  Une source n'a envoyé aucun événement depuis le délai prévu : connecteur en panne, équipement arrêté ou
+  journalisation désactivée. « auto » : intégrations activées du catalogue ayant déjà envoyé des données
+  (délais : Sophos 30 min, HarfangLab et CrowdSec 15 min, Windows 30 min). On peut aussi lister des modules
+  et délais explicites (ex. « sophos_xgs: 30m »).
+sources: auto
+title: "Source silencieuse : {event.module} (aucun événement depuis {value} min)"
+dedup_window: 24h
+mitre: [T1562]
+playbook: playbooks/source-silence.md

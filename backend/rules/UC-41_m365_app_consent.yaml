@@ -1,0 +1,16 @@
+id: UC-41
+name: Consentement à une application ou secret ajouté (Entra ID)
+type: match
+severity: medium
+description: >
+  Une application a reçu des autorisations sur les données du tenant, ou un secret a été ajouté à une application.
+  Les attaquants font accepter une application malveillante (hameçonnage par consentement) pour lire la messagerie
+  sans mot de passe ni MFA.
+filter:
+  event.module: m365
+  event.action: app_consent
+group_by: [rule.name]
+title: "Entra ID : {message}"
+dedup_window: 24h
+mitre: [T1528]
+playbook: playbooks/m365-account.md

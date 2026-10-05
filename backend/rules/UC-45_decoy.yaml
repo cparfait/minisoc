@@ -1,0 +1,15 @@
+id: UC-45
+name: Leurre touché
+type: match
+severity: critical
+description: >
+  Un leurre (compte, dossier, machine ou chaîne secrète qu'aucun usage légitime ne touche) a été utilisé, ouvert ou
+  essayé. Sans faux positif possible, hors manipulation par la DSI elle-même : quelqu'un explore le réseau.
+filter:
+  event.module: {eq: "__calcul__"}
+group_by: [threat.intel, source.ip, host.name]
+title: "Leurre touché : {threat.intel} ({source.ip|host.name|user.name})"
+dedup_window: 6h
+storm_limit: 0
+mitre: [T1087, T1078]
+playbook: playbooks/decoy.md

@@ -1,0 +1,22 @@
+id: UC-04
+name: Connexion VPN depuis un pays inhabituel
+type: novelty
+severity: high
+description: >
+  Un compte se connecte au VPN depuis un pays d'où il ne s'est jamais connecté au cours des 30 derniers jours :
+  déplacement, ou identifiants utilisés par un tiers. Nécessite une base GeoIP (data/geoip/).
+filter:
+  event.category: authentication
+  event.outcome: success
+  network.service: [ssl_vpn, ipsec, l2tp, user_portal]
+group_by: [user.name]
+novelty:
+  field: source.geo.country_iso_code
+  history: 30d
+  min_history: 3
+window: 15m
+title: "Connexion VPN de {user.name} depuis un pays inhabituel : {source.geo.country_iso_code}"
+dedup_window: 24h
+storm_limit: 5
+mitre: [T1078, T1133]
+playbook: playbooks/vpn-success-after-failures.md

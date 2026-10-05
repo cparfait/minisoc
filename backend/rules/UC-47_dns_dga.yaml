@@ -1,0 +1,19 @@
+id: UC-47
+name: Domaine généré par algorithme (DGA)
+type: match
+severity: medium
+description: >
+  Un poste interroge un domaine au nom imprononçable (longueur, entropie, peu de voyelles ou beaucoup de chiffres) :
+  méthode des logiciels malveillants pour retrouver leur serveur de commande. Faux positifs possibles (CDN,
+  services cloud) : ajouter le domaine aux domaines de confiance.
+filter:
+  all:
+    - event.module: dns
+    - threat.name: dga_suspect
+    - dns.question.registered_domain: {not_in: $dns_trusted_domains}
+group_by: [source.ip, dns.question.registered_domain]
+title: "Domaine suspect (DGA) : {dns.question.registered_domain} demandé par {source.ip}"
+dedup_window: 24h
+storm_limit: 10
+mitre: [T1568]
+playbook: playbooks/dns-dga.md

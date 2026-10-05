@@ -1,0 +1,19 @@
+id: UC-46
+name: Tunnel DNS ou exfiltration par DNS
+type: threshold
+severity: high
+description: >
+  Un poste interroge un très grand nombre de sous-domaines différents d'un même domaine en 10 minutes : signe d'un
+  tunnel DNS (commande et contrôle, exfiltration de données encodées dans les noms). Les domaines de confiance
+  (éditeurs, antivirus, CDN) sont exclus : Paramètres › Détection.
+filter:
+  all:
+    - event.module: dns
+    - dns.question.registered_domain: {not_in: $dns_trusted_domains}
+window: 10m
+condition: count_distinct(dns.question.name) >= 300
+group_by: [source.ip, dns.question.registered_domain]
+title: "Tunnel DNS possible : {source.ip} vers {dns.question.registered_domain} ({value} noms)"
+dedup_window: 6h
+mitre: [T1071, T1048]
+playbook: playbooks/dns-tunnel.md

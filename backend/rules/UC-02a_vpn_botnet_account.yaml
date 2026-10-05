@@ -1,0 +1,20 @@
+id: UC-02a
+name: Force brute VPN distribuée sur un compte (botnet)
+type: threshold
+severity: critical
+description: >
+  Un même compte est attaqué depuis de nombreuses adresses IP différentes : signature d'un botnet.
+filter:
+  event.module: sophos_xgs
+  event.category: authentication
+  event.outcome: failure
+  network.service: [ssl_vpn, ipsec, l2tp, user_portal]
+group_by: [user.name]
+window: 1h
+condition: count_distinct(source.ip) >= 20
+title: "Botnet sur le VPN : compte {user.name} visé depuis {value} IP en 1 h"
+dedup_window: 24h
+storm_limit: 3  # au-delà de 3 alertes en 1 h : regroupement dans une seule alerte
+qualify: auth_account
+mitre: [T1110.001, T1110.004, T1133]
+playbook: playbooks/vpn-bruteforce.md

@@ -1,0 +1,20 @@
+# Suggestions de catégorie pour des détections d'outils connues. Elles sont seulement proposées dans la vue
+# « Par détection » : la DSI les accepte ou non. Nom de détection exact, insensible à la casse.
+# category : threat (menace), hygiene (hygiène du parc), info (information) ; severity : facultative.
+
+- module: harfanglab
+  detection: Recommended driver block list
+  category: hygiene
+  severity: 2
+  why: >-
+    Pilote signé mais connu comme vulnérable, présent sur le poste (souvent un utilitaire du constructeur).
+    Un attaquant déjà administrateur pourrait s'en servir pour désactiver la sécurité : c'est un risque à
+    corriger sur le parc (retrait du pilote, mise à jour), pas une attaque en cours.
+
+- module: harfanglab
+  detection: Computrace Agent Started
+  category: info
+  severity: 1
+  why: >-
+    Agent antivol Absolute (Computrace) intégré au BIOS de nombreux portables : légitime s'il est déployé par
+    la collectivité, à vérifier sinon.

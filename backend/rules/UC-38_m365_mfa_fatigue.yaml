@@ -1,0 +1,19 @@
+id: UC-38
+name: Demandes MFA refusées en série (fatigue MFA)
+type: threshold
+severity: high
+description: >
+  Plusieurs demandes d'approbation MFA ont été refusées ou ignorées pour le même compte : quelqu'un qui connaît le
+  mot de passe bombarde l'utilisateur de notifications en espérant une validation par lassitude. Le mot de passe
+  est compromis.
+filter:
+  event.module: m365
+  event.outcome: failure
+  event.reason: mfa_failed
+group_by: [user.name]
+window: 1h
+condition: count() >= 3
+title: "Fatigue MFA : {value} demandes refusées pour {user.name} en 1 h"
+dedup_window: 12h
+mitre: [T1621]
+playbook: playbooks/m365-account.md
