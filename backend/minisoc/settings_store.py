@@ -56,21 +56,22 @@ FIELDS: dict[str, Field] = {
     "smtp_to": Field("smtp", "list", [], env="smtp_to"),
     "smtp_ca_cert": Field("smtp", "pem", ""),
     # Intégrations (catalogue) : activation des sources et fonctions
-    "src_sophos_xgs_enabled": Field("integrations", "bool", True),
-    "src_bitdefender_enabled": Field("integrations", "bool", True),
-    "src_harfanglab_enabled": Field("integrations", "bool", True),
-    "src_m365_enabled": Field("integrations", "bool", True),
-    "src_ninjaone_enabled": Field("integrations", "bool", True),
-    "src_crowdsec_enabled": Field("integrations", "bool", True),
-    "src_windows_enabled": Field("integrations", "bool", True),
-    "src_dns_enabled": Field("integrations", "bool", True),
-    "src_vectra_enabled": Field("integrations", "bool", True),
-    "src_varonis_enabled": Field("integrations", "bool", True),
-    "src_syslog_enabled": Field("integrations", "bool", True),
-    "geoip_enabled": Field("integrations", "bool", True),
+    "src_sophos_xgs_enabled": Field("integrations", "bool", False),
+    "src_bitdefender_enabled": Field("integrations", "bool", False),
+    "src_harfanglab_enabled": Field("integrations", "bool", False),
+    "src_m365_enabled": Field("integrations", "bool", False),
+    "src_ninjaone_enabled": Field("integrations", "bool", False),
+    "src_cyberwatch_enabled": Field("integrations", "bool", False),
+    "src_crowdsec_enabled": Field("integrations", "bool", False),
+    "src_windows_enabled": Field("integrations", "bool", False),
+    "src_dns_enabled": Field("integrations", "bool", False),
+    "src_vectra_enabled": Field("integrations", "bool", False),
+    "src_varonis_enabled": Field("integrations", "bool", False),
+    "src_syslog_enabled": Field("integrations", "bool", False),
+    "geoip_enabled": Field("integrations", "bool", False),
     "bitdefender_token": Field("connectors", "str", "", secret=True, env="bitdefender_token"),
     "bitdefender_allowed_ips": Field("connectors", "list", [], env="bitdefender_allowed_ips"),
-    "bitdefender_console_url": Field("connectors", "str", "https://cloud.gravityzone.bitdefender.com",
+    "bitdefender_console_url": Field("connectors", "str", "https://cloudgz.gravityzone.bitdefender.com",
                                      env="bitdefender_console_url"),
     # Connecteurs d'API (interrogés par le worker ; modifiables sans redémarrage)
     "harfanglab_url": Field("connectors", "str", "", env="harfanglab_url"),
@@ -79,6 +80,9 @@ FIELDS: dict[str, Field] = {
     # Clôture dans le Mini-SOC de ce qui est traité dans l'outil (minisoc/source_sync.py)
     "harfanglab_sync_status": Field("connectors", "bool", True),
     "ninjaone_sync_status": Field("connectors", "bool", True),
+    "cyberwatch_sync_status": Field("connectors", "bool", True),
+    "varonis_sync_status": Field("connectors", "bool", True),
+    "bitdefender_sync_status": Field("connectors", "bool", True),
     # Export vers un SIEM ou un SOC externe (minisoc/export.py)
     "export_enabled": Field("connectors", "bool", False),
     "export_host": Field("connectors", "str", ""),
@@ -102,11 +106,37 @@ FIELDS: dict[str, Field] = {
     "sla_resolve_medium": Field("followup", "int", 7),
     "sla_resolve_low": Field("followup", "int", 30),
     "assign_notify": Field("followup", "bool", True),  # e-mail à la personne à qui une alerte est assignée
+    # Écran mural (commun à tous les écrans) : écrans qui défilent et leur ordre, durée, alertes affichées aussitôt
+    "wall_pages": Field("wall", "list", ["alertes", "vpn", "auth", "vuln", "sources"]),
+    "wall_rotation": Field("wall", "int", 20),  # secondes par écran, 0 = pas de défilement
+    "wall_flash_min_severity": Field("wall", "choice", "high", choices=("medium", "high", "critical")),
+    "wall_sound_default": Field("wall", "bool", False),  # son discret, modifiable sur chaque écran
     "harfanglab_history_days": Field("connectors", "int", 0),  # profondeur de relecture (jours, 0 = tout l'historique)
     # NinjaOne (parc) : application « Services API », portée monitoring (lecture seule)
     "ninjaone_instance": Field("connectors", "str", "eu"),  # eu, us, ca, oc ou nom d'hôte
     "ninjaone_client_id": Field("connectors", "str", ""),
     "ninjaone_client_secret": Field("connectors", "str", "", secret=True),
+    # Varonis SaaS : clé d'API au rôle « Threat Detection Integrator » (recherche d'alertes)
+    "varonis_url": Field("connectors", "str", ""),  # https://<tenant>.varonis.io
+    "varonis_api_key": Field("connectors", "str", "", secret=True),
+    # GravityZone : clé d'API de lecture (Incidents, Quarantaine), distincte de la clé d'isolation
+    "bitdefender_read_api_key": Field("connectors", "str", "", secret=True),
+    "bitdefender_history_days": Field("connectors", "int", 365),  # relu au raccordement (jours, 0 = tout)
+    # Cyberwatch (vulnérabilités) : clé d'API en lecture seule, authentification Basic
+    "cyberwatch_url": Field("connectors", "str", ""),  # https://cyberwatch.mairie.local
+    "cyberwatch_access_key": Field("connectors", "str", ""),
+    "cyberwatch_secret_key": Field("connectors", "str", "", secret=True),
+    "cyberwatch_verify_tls": Field("connectors", "bool", True),
+    "cyberwatch_ca_cert": Field("connectors", "pem", ""),
+    # MaxMind GeoLite2 (compte gratuit) : bases de géolocalisation téléchargées par le worker (geoip_update.py)
+    "maxmind_account_id": Field("connectors", "str", ""),
+    "maxmind_license_key": Field("connectors", "str", "", secret=True),
+    # Vectra AI : client d'API OAuth2 en lecture seule (détections et scores d'entités, API v3.4)
+    "vectra_url": Field("connectors", "str", ""),  # https://brain.mairie.local ou https://<id>.portal.vectra.ai
+    "vectra_client_id": Field("connectors", "str", ""),
+    "vectra_client_secret": Field("connectors", "str", "", secret=True),
+    "vectra_verify_tls": Field("connectors", "bool", True),
+    "vectra_ca_cert": Field("connectors", "pem", ""),
     # Microsoft 365 / Entra ID : inscription d'application (ActivityFeed.Read), journal d'audit unifié
     "m365_tenant_id": Field("connectors", "str", ""),
     "m365_client_id": Field("connectors", "str", ""),
@@ -127,12 +157,14 @@ FIELDS: dict[str, Field] = {
     # Isolation de poste par l'EDR (F-27) : jetons distincts des jetons de lecture
     "isolation_enabled": Field("response", "bool", False),
     "harfanglab_isolation_token": Field("response", "str", "", secret=True),
-    "bitdefender_api_url": Field("response", "str", "https://cloud.gravityzone.bitdefender.com/api"),
+    "bitdefender_api_url": Field("response", "str", "https://cloudgz.gravityzone.bitdefender.com/api"),
     "bitdefender_api_key": Field("response", "str", "", secret=True),
     "never_block": Field("response", "list", ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]),
     # Détection
     "home_countries": Field("detection", "list", ["FR"]),  # pays habituels des connexions (codes ISO)
-    "threat_feeds_enabled": Field("detection", "bool", True),  # veille CISA KEV et CERT-FR (accès Internet)
+    # DNS interne (Active Directory) : noms des adresses internes affichés à côté des adresses (résolution inverse)
+    "dns_server": Field("detection", "str", ""),
+    "threat_feeds_enabled": Field("detection", "bool", False),  # veille CISA KEV et CERT-FR (accès Internet)
     # Comptes sensibles (minisoc/accounts.py) : motifs de noms en plus de la liste lue dans l'AD
     "accounts_ad_sync": Field("detection", "bool", True),  # admins (adminCount=1) et comptes de service lus dans l'AD
     "accounts_admin_patterns": Field("detection", "list", ["administrateur", "administrator", "adm-*", "adm_*",
@@ -194,6 +226,7 @@ FIELDS: dict[str, Field] = {
 }
 
 GROUPS = sorted({f.group for f in FIELDS.values()})
+WALL_PAGES = ("alertes", "vpn", "auth", "vuln", "sources")
 _CACHE_SECONDS = 30
 CHANNELS = ("email", "teams", "ntfy")
 
@@ -243,7 +276,7 @@ def validate(key: str, value: Any) -> Any:
     if key == "ldap_url" and value:
         if not str(value).lower().startswith("ldaps://"):
             raise SettingsError("ldap_url : seul LDAPS est accepté (ldaps://serveur:636) ; le LDAP en clair est refusé")
-    if key in ("harfanglab_url", "crowdsec_url") and value and not str(value).lower().startswith(("http://", "https://")):
+    if key in ("harfanglab_url", "crowdsec_url", "vectra_url") and value and not str(value).lower().startswith(("http://", "https://")):
         raise SettingsError(f"{key} : adresse http(s):// attendue")
     if key == "ai_base_url" and value and not str(value).lower().startswith(("http://", "https://")):
         raise SettingsError("ai_base_url : adresse http(s):// attendue")
@@ -288,8 +321,25 @@ def validate(key: str, value: Any) -> Any:
             raise SettingsError("business_days : jours de 1 (lundi) à 7 (dimanche)")
     if key.startswith("sla_") and not 1 <= int(value) <= 8760:
         raise SettingsError(f"{key} : entre 1 et 8760")
+    if key == "dns_server" and value:
+        import ipaddress
+
+        try:
+            ipaddress.ip_address(str(value).strip())
+        except ValueError:
+            raise SettingsError("dns_server : adresse IP du serveur DNS interne attendue (ex. 192.168.2.9)") from None
+    if key == "wall_pages":
+        raw = value if isinstance(value, list) else str(value).split(",")
+        items = [str(i).strip() for i in raw if str(i).strip()]
+        unknown = [i for i in items if i not in WALL_PAGES]
+        if unknown or "alertes" not in items:
+            raise SettingsError(f"wall_pages : écrans parmi {', '.join(WALL_PAGES)}, « alertes » obligatoire")
+    if key == "wall_rotation" and not 0 <= int(value) <= 600:
+        raise SettingsError("wall_rotation : entre 0 (pas de défilement) et 600 secondes")
     if key == "risk_threshold" and not 20 <= int(value) <= 1000:
         raise SettingsError("risk_threshold : entre 20 et 1000 points")
+    if key == "bitdefender_history_days" and not 0 <= int(value) <= 3650:
+        raise SettingsError("bitdefender_history_days : entre 0 (tout l'historique) et 3650 jours")
     if key == "harfanglab_history_days" and not 0 <= int(value) <= 3650:
         raise SettingsError("harfanglab_history_days : entre 0 (tout l'historique) et 3650 jours")
     if key == "digest_hour" and not 0 <= int(value) <= 23:

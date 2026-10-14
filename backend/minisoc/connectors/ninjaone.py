@@ -1,6 +1,6 @@
 """NinjaOne (gestion du parc) : alertes et état de sécurité des postes, en lecture seule.
 
-Reprise du connecteur NinjaOne de sesame-ia (chatia/connecteurs/ninjaone.py) : API publique v2, jeton OAuth2
+API publique v2 de NinjaOne, jeton OAuth2
 « client credentials » en portée « monitoring » (lecture seule), POST https://<instance>/ws/oauth/token.
 Application à créer dans NinjaOne : Administration › Applications › API › Ajouter une application client ›
 « Services API (de machine à machine) », portée Surveillance, autorisation « Identifiants du client ».
@@ -206,7 +206,7 @@ class NinjaOneConnector:
         while True:
             async with self.sessions() as session:
                 cfg = await settings_store.load(session)
-            if configured(cfg) and cfg.get("src_ninjaone_enabled", True):
+            if configured(cfg) and cfg.get("src_ninjaone_enabled", False):
                 try:
                     async with httpx.AsyncClient(timeout=60) as http:
                         api = NinjaClient(cfg, http)
@@ -311,6 +311,7 @@ async def test(cfg: dict) -> tuple[bool, str]:
             return False, f"NinjaOne injoignable ({type(exc).__name__}) : instance {host(cfg)}"
     return (
         True,
-        f"Connexion réussie à {host(cfg)} : inventaire lisible ({len(page)} appareil lu), "
-        f"{len(alerts)} alerte(s) active(s)",
+        f"Connexion réussie à {host(cfg)} : inventaire accessible"
+        f"{'' if page else ' mais vide (aucun appareil visible avec ces droits)'}, {len(alerts)} alerte(s) active(s). "
+        "Le parc complet est lu au premier relevé, puis toutes les 30 minutes.",
     )

@@ -1,13 +1,17 @@
 import json
 from datetime import datetime, timezone
 
+from conftest import RULES_DIR
+
 from minisoc.parsers import parse_message
 from minisoc.parsers.bitdefender import parse_bitdefender
 from minisoc.parsers.cef import parse_cef
 from minisoc.parsers.common import parse_kv
 from minisoc.parsers.harfanglab import parse_harfanglab
+from minisoc.rules import load_rules
+from minisoc.rules.engine import RuleSet
 
-NOW = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+NOW =datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
 
 def syslog(line: str):
@@ -17,6 +21,62 @@ def syslog(line: str):
 def test_parse_kv_handles_quotes_and_empty_values():
     kv = parse_kv('a=1 b="deux mots" c= d="x \\"y\\"" e=fin')
     assert kv == {"a": "1", "b": "deux mots", "c": "", "d": 'x "y"', "e": "fin"}
+
+
+SOPHOS_STANDARD = (
+    # Format « Standard syslog protocol » (guide syslog SFOS 21.5), adresses et comptes anonymisés
+    '<30>Oct  7 14:02:11 XGS device_name="SFW" timestamp="2026-10-07T14:02:11+0200" device_model="XGS136" '
+    'device_serial_id="X1" log_id="063110617711" log_type="Event" log_component="SSL VPN Authentication" '
+    'log_subtype="Authentication" log_version=1 severity="Information" status="Failed" user_name="j.dupont" '
+    'user_group="" client_used="SSLVPN" auth_mechanism="AD" reason="wrong credentials" src_ip="203.0.113.7" '
+    'src_country="FRA" message="User j.dupont failed to login to SSLVPN through AD authentication mechanism"',
+    '<30>Oct  7 14:03:00 XGS device_name="SFW" timestamp="2026-10-07T14:03:00+0200" device_model="XGS136" '
+    'device_serial_id="X1" log_id="062910617703" log_type="Event" log_component="GUI" log_subtype="Admin" '
+    'log_version=1 severity="Information" status="Failed" user_name="admin" src_ip="198.51.100.9" '
+    'message="User admin failed to login to Web Admin from 198.51.100.9 because of wrong credentials"',
+    '<30>Oct  7 14:04:00 XGS device_name="SFW" timestamp="2026-10-07T14:04:00+0200" device_model="XGS136" '
+    'device_serial_id="X1" log_id="062910617705" log_type="Event" log_component="GUI" log_subtype="Admin" '
+    'log_version=1 severity="Information" status="Successful" user_name="admin" '
+    'message="Firewall rule LAN_to_WAN was modified by admin"',
+    '<30>Oct  7 14:05:00 XGS device_name="SFW" timestamp="2026-10-07T14:05:00+0200" device_model="XGS136" '
+    'device_serial_id="X1" log_id="086304418010" log_type="ATP" log_component="Firewall" log_subtype="Drop" '
+    'log_version=1 severity="Warning" protocol="TCP" src_ip="10.1.4.22" dst_ip="46.161.30.47" '
+    'url="46.161.30.47" malware="C2/Generic-A" threatfeed="MDR threat feeds" src_country="R1" dst_country="RUS"',
+)
+
+
+def test_sophos_standard_syslog_protocol_format():
+    vpn, admin_fail, admin_change, atp = (syslog(line) for line in SOPHOS_STANDARD)
+    assert (vpn.module, vpn.category, vpn.outcome, vpn.network_service) == (
+        "sophos_xgs", "authentication", "failure", "ssl_vpn")
+    assert (vpn.user_name, vpn.source_ip, vpn.reason) == ("j.dupont", "203.0.113.7", "invalid_credentials")
+    assert vpn.ts.isoformat() == "2026-10-07T12:02:11+00:00"  # fuseau du timestamp respecté
+    assert (admin_fail.category, admin_fail.network_service, admin_fail.outcome) == (
+        "authentication", "admin_console", "failure")
+    rs = RuleSet(load_rules(RULES_DIR))
+    assert "UC-10" in {r.id for r in rs.match(admin_fail)}  # administration depuis une adresse publique
+    assert admin_change.category == "configuration"  # modification de règle : pas une connexion
+    # Portail VPN : adresse source 127.0.0.1 (relais interne) : UC-01 l'écarte, UC-51 compte les comptes distincts
+    portal = syslog(SOPHOS_STANDARD[0].replace("SSL VPN Authentication", "VPN Portal Authentication")
+                    .replace('src_ip="203.0.113.7"', 'src_ip="127.0.0.1"')
+                    .replace('client_used="SSLVPN"', 'client_used="N/A"'))
+    assert (portal.network_service, portal.source_ip, portal.outcome) == ("user_portal", "127.0.0.1", "failure")
+    from minisoc.rules.sql import threshold_query
+
+    rules = {r.id: r for r in load_rules(RULES_DIR)}
+    uc01, params01 = threshold_query(rules["UC-01"])
+    assert "127.0.0.0/8" in str(params01) or "127.0.0.0/8" in uc01
+    uc51, _ = threshold_query(rules["UC-51"])
+    assert "uniqExact(user_name)" in uc51 and "network_service AS g0" in uc51
+    assert (atp.kind, atp.category, atp.severity, atp.threat_name, atp.outcome) == (
+        "alert", "intrusion_detection", 3, "C2/Generic-A", "failure")
+
+
+def test_sophos_access_time_policy_reason():
+    from minisoc.parsers.sophos import auth_failure_reason
+
+    assert auth_failure_reason("User x failed to login to Firewall because of Access Time Policy violation") == (
+        "outside_hours")
 
 
 def test_sophos_ssl_vpn_failure_legacy_format(sophos_lines):

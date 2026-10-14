@@ -10,6 +10,9 @@ filter:
   event.category: authentication
   event.outcome: failure
   network.service: [ssl_vpn, ipsec, l2tp, user_portal]
+  # Portail VPN des SFOS récents : l'adresse journalisée est 127.0.0.1 (relais interne du pare-feu), sans valeur
+  # pour cette règle ; la pulvérisation de mots de passe est alors détectée par UC-51 (comptes distincts)
+  source.ip: {not_cidr: [127.0.0.0/8]}
 group_by: [source.ip]
 window: 10m
 condition: count() >= 20

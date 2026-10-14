@@ -68,3 +68,17 @@ def test_non_windows_json_is_not_misparsed():
     ev = parse_message("syslog", json.dumps({"message": '<14>app {"level": "info", "msg": "ok"}', "peer": "x",
                                              "received_at": NOW.isoformat()}))
     assert ev.module == "syslog"
+
+
+def test_nxlog_ce_local_time_and_utc_field():
+    """NXLog Community Edition date en heure locale sans fuseau ; EventTimeUTC (ms, nxlog.conf) fait foi."""
+    from minisoc.parsers.windows import parse_windows
+
+    received = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
+    local = parse_windows({"EventID": 4625, "Hostname": "DC01", "EventTime": "2026-10-07 10:00:00"}, received)
+    assert local.ts == datetime(2026, 10, 7, 8, 0, tzinfo=timezone.utc)  # heure d'été de Paris : UTC+2
+    winter = parse_windows({"EventID": 4625, "Hostname": "DC01", "EventTime": "2026-12-07 10:00:00"}, received)
+    assert winter.ts == datetime(2026, 12, 7, 9, 0, tzinfo=timezone.utc)
+    utc = parse_windows({"EventID": 4625, "Hostname": "DC01", "EventTime": "2026-10-07 10:00:00",
+                         "EventTimeUTC": 1791360000123}, received)
+    assert utc.ts == datetime.fromtimestamp(1791360000.123, tz=timezone.utc)

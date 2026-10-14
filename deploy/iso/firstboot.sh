@@ -5,6 +5,15 @@
 # Relançable sans risque (sudo /usr/local/sbin/minisoc-firstboot) : chaque étape vérifie si elle est déjà faite.
 set -euo pipefail
 exec > >(tee -a /var/log/minisoc-firstboot.log) 2>&1
+# En cas d'échec : dire clairement quoi faire (l'invite de connexion est noyée dans les messages)
+on_exit() {
+  local rc=$?
+  [ "$rc" = 0 ] && return
+  printf '\n\e[1;31mÉCHEC DU PREMIER DÉMARRAGE (code %s)\e[0m : voir les lignes ci-dessus et /var/log/minisoc-firstboot.log\n' "$rc"
+  echo "Appuyer sur Entrée pour afficher l'invite, se connecter en adminsoc (ou ssh adminsoc@<IP>), puis reprendre :"
+  echo "  sudo /usr/local/sbin/minisoc-firstboot"
+}
+trap on_exit EXIT
 
 SRC=/usr/local/lib/minisoc-install
 . /etc/minisoc-firstboot/site.env
@@ -18,6 +27,19 @@ WARNINGS=""
 APP_OK=1
 step() { echo; echo "=== Mini-SOC, premier démarrage : $* ==="; }
 warn() { echo "ATTENTION : $*"; WARNINGS="$WARNINGS- $*"$'\n'; }
+# Téléchargement : en cas d'échec, pause et nouvel essai chaque minute jusqu'au succès (blocage du firewall, proxy, coupure)
+net() {
+  local n=1
+  until "$@"; do
+    echo
+    echo "INSTALLATION EN PAUSE : échec d'un téléchargement (essai $n) : $*"
+    echo "Coupure ou refus sur le chemin réseau : journaux du FIREWALL pour $vm_ip (règle, filtrage web, IPS, inspection"
+    echo "HTTPS), proxy. Docker, GitHub et PyPI passent par des CDN dont l'adresse IP change à chaque requête."
+    echo "Nouvel essai dans 60 s (arrêt : sudo systemctl stop minisoc-firstboot)."
+    n=$((n + 1))
+    sleep 60
+  done
+}
 
 iface=$(ip -o route show default | awk '{print $5; exit}')
 vm_ip=$(ip -4 -o addr show dev "$iface" scope global | awk '{print $4; exit}' | cut -d/ -f1)
@@ -29,10 +51,52 @@ fqdn=$(hostname -f 2>/dev/null || hostname)
 install -D -m 0644 "$SRC/banner.txt" /usr/local/share/minisoc/banner.txt
 printf '\e[1;32m'; cat /usr/local/share/minisoc/banner.txt; printf '\e[0m'
 
+# ---------- Accès Internet nécessaires à l'installation (doc 04 § 2 bis) ----------
+# Tant qu'un serveur est injoignable, l'installation attend et affiche ce qu'il faut ouvrir (sur le firewall ou le proxy).
+step "accès Internet"
+NEEDED="http://deb.debian.org http://security.debian.org https://registry-1.docker.io https://auth.docker.io
+https://ghcr.io https://pkg-containers.githubusercontent.com https://registry.npmjs.org https://pypi.org
+https://files.pythonhosted.org"
+command -v docker >/dev/null || NEEDED="$NEEDED https://download.docker.com"
+if [ -n "${DOCKER_MIRROR:-}" ]; then
+  NEEDED="$NEEDED $DOCKER_MIRROR"     # les images passent par le miroir : CDN de Docker Hub inutiles
+else
+  NEEDED="$NEEDED https://production.cloudflare.docker.com https://production.cloudfront.docker.com"
+fi
+SKIP=/run/minisoc-firstboot-sans-controle
+while :; do
+  missing="" flaky=""
+  for url in $NEEDED; do
+    # Toute réponse HTTP convient (même 403 ou 404) : seuls comptent le DNS et la connexion. Trois essais : un
+    # serveur qui répond au moins une fois est joignable (les téléchargements sont retentés), mais signalé.
+    ok=0 fails=0
+    for _ in 1 2 3; do
+      if curl -s -o /dev/null --connect-timeout 10 -m 20 "$url/"; then ok=1; else fails=$((fails + 1)); fi
+    done
+    [ "$ok" = 1 ] || missing="$missing $url"
+    [ "$ok" = 0 ] || [ "$fails" = 0 ] || flaky="$flaky ${url#*://}"
+  done
+  if [ -z "$missing" ]; then
+    echo "Tous les serveurs nécessaires sont joignables."
+    [ -z "$flaky" ] || warn "coupures intermittentes vers :$flaky (firewall, IPS ou opérateur ; téléchargements retentés)"
+    break
+  fi
+  [ ! -e "$SKIP" ] || { warn "contrôle des accès Internet ignoré, injoignables :$missing"; break; }
+  echo
+  echo "INSTALLATION EN PAUSE : serveurs injoignables depuis $vm_ip${HTTP_PROXY:+ (via le proxy $HTTP_PROXY)} :"
+  for url in $missing; do
+    case "$url" in http:*) port=80 ;; *) port=443 ;; esac
+    printf '  - %-40s TCP %s\n' "${url#*://}" "$port"
+  done
+  echo "À autoriser sur le FIREWALL (ou le proxy) pour cette VM. Nouvel essai dans 60 s."
+  echo "Pour continuer quand même : sudo touch $SKIP"
+  sleep 60
+done
+
 # ---------- Paquets complémentaires ----------
 step "paquets"
 dpkg --configure -a          # reprise d'une installation interrompue (coupure pendant un premier démarrage)
-$APT install fail2ban python3-systemd libpam-pwquality apparmor apparmor-utils whiptail
+net $APT install fail2ban python3-systemd libpam-pwquality apparmor apparmor-utils whiptail
 
 # ---------- Disque de données sur /var/lib/docker (avant Docker) ----------
 step "disque de données"
@@ -78,6 +142,9 @@ if [ -n "$conflict" ]; then
 fi
 bip=$(python3 -c "import ipaddress,sys; n=list(ipaddress.ip_network(sys.argv[1]).subnets(new_prefix=24))[-1]; print(f'{n[1]}/24')" "$pool")
 mkdir -p /etc/docker
+# Miroir de Docker Hub (DOCKER_MIRROR de vm.conf), si le réseau coupe CloudFront
+mirror=""
+[ -z "${DOCKER_MIRROR:-}" ] || mirror="\"registry-mirrors\": [\"$DOCKER_MIRROR\"],"
 cat > /etc/docker/daemon.json <<EOF
 {
   "log-driver": "local",
@@ -85,6 +152,8 @@ cat > /etc/docker/daemon.json <<EOF
   "live-restore": true,
   "userland-proxy": false,
   "no-new-privileges": true,
+  "max-download-attempts": 20,
+  $mirror
   "icc": false,
   "bip": "$bip",
   "default-address-pools": [{ "base": "$pool", "size": 24 }]
@@ -92,11 +161,11 @@ cat > /etc/docker/daemon.json <<EOF
 EOF
 if ! command -v docker >/dev/null; then
   install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+  net curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
   chmod a+r /etc/apt/keyrings/docker.asc
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
-  $APT update
-  $APT install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  net $APT -o APT::Update::Error-Mode=any update
+  net $APT install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 systemctl restart docker
 docker info --format 'Docker {{.ServerVersion}}, données : {{.DockerRootDir}}'
@@ -150,6 +219,17 @@ sysctl --system >/dev/null
 
 # ---------- Système : modules, mémoire partagée, comptes (§ 4.7) ----------
 step "système"
+# Clavier français (AZERTY) sur la console de la VM
+if ! grep -qs '^XKBLAYOUT="fr"' /etc/default/keyboard; then
+  cat > /etc/default/keyboard <<'EOF'
+XKBMODEL="pc105"
+XKBLAYOUT="fr"
+XKBVARIANT="latin9"
+XKBOPTIONS=""
+BACKSPACE="guess"
+EOF
+  setupcon --force --save || true
+fi
 cat > /etc/modprobe.d/minisoc-blacklist.conf <<'EOF'
 # Protocoles réseau et systèmes de fichiers inutiles, stockage USB et FireWire : chargement refusé
 install dccp /bin/false
@@ -193,6 +273,8 @@ maxretry = 5
 [sshd]
 enabled = true
 mode = aggressive
+# Bannissement sur tous les ports : reste valable si le port SSH change (sudo minisoc-setup)
+banaction = %(banaction_allports)s
 EOF
 systemctl enable fail2ban
 systemctl restart fail2ban
@@ -239,6 +321,7 @@ step "application Mini-SOC"
 cd /opt/minisoc
 if [ ! -f docker-compose.yml ]; then
   tar -xzf "$SRC/minisoc.tar.gz" -C /opt/minisoc
+  tar -tzf "$SRC/minisoc.tar.gz" | grep -v '/$' | sort > /opt/minisoc/.minisoc-fichiers   # pour minisoc-update
   chown -R root:root /opt/minisoc
   chmod 750 /opt/minisoc
 fi
@@ -252,7 +335,9 @@ setenv SYSLOG_BIND "$vm_ip"
 setenv COMPOSE_PROFILES syslog-tls
 [ -f data/syslog-tls/server.crt ] || sh scripts/syslog_cert.sh "$fqdn" "$vm_ip"
 if [ "$APP_OK" = 1 ]; then
-  docker compose up -d --build
+  net docker compose pull --ignore-buildable
+  net docker compose build
+  docker compose up -d
   for _ in $(seq 60); do
     pending=$(docker compose ps --format '{{.Service}} {{.Health}}' | awk '$2 != "" && $2 != "healthy"' | wc -l)
     [ "$pending" = 0 ] && break
@@ -280,6 +365,7 @@ SYSLOG_TCP="$PRIVATE"
 SYSLOG_TLS="$PRIVATE"
 SYSLOG_UDP=""
 BACKUP_SERVER=""
+SSH_PORT="22"
 
 # --- Sortant (hôte:port) ---
 DNS="$dns"
@@ -312,6 +398,8 @@ warn "phrase de passe des sauvegardes (/etc/minisoc/backup.pass) et clé maître
 
 # ---------- Console de paramétrage et écran d'accueil de la console vSphere ----------
 install -m 0750 "$SRC/minisoc-setup.sh" /usr/local/sbin/minisoc-setup
+install -m 0750 "$SRC/minisoc-update.sh" /usr/local/sbin/minisoc-update
+[ -f /etc/minisoc/version ] || install -m 0644 "$SRC/VERSION" /etc/minisoc/version
 {
   cat /usr/local/share/minisoc/banner.txt
   echo
@@ -326,7 +414,8 @@ step "terminé"
   echo "Mini-SOC : VM installée le $(date '+%d/%m/%Y %H:%M'). $fqdn ($vm_ip), interface $iface."
   echo "Étape suivante : sudo minisoc-setup (pare-feu, SSH, sauvegarde, compte de secours, écran mural)."
   [ -z "$WARNINGS" ] || printf 'Points d’attention :\n%s' "$WARNINGS"
-} | tee /etc/motd
+} | tee /etc/minisoc/installation.txt
+: > /etc/motd     # accueil calculé à chaque connexion : /etc/update-motd.d/05-minisoc
 if [ "$APP_OK" = 1 ]; then
   touch /var/lib/minisoc-firstboot.done
   systemctl disable minisoc-firstboot.service

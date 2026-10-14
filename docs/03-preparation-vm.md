@@ -34,8 +34,7 @@ l'interface (plus propre), soit `scripts/backup.sh` ici puis `scripts/restore.sh
 | Postes de la DSI, écran mural | 443/TCP | interface web |
 | Sophos XGS | 514/TCP (ou 6514/TCP chiffré) | journaux VPN, pare-feu, IPS |
 | Contrôleurs de domaine, serveurs de fichiers | 514/TCP (ou 6514/TCP) | journaux Windows (NXLog) |
-| Vectra, Varonis | 514/TCP | alertes CEF |
-| Internet (Bitdefender), via un reverse proxy en DMZ | 443/TCP, chemin `/api/ingest/bitdefender` seulement | événements GravityZone |
+| Vectra (et Varonis installé sur site) | 514/TCP | alertes CEF |
 | Poste d'administration | 22/TCP | SSH |
 
 **Depuis la VM**
@@ -48,11 +47,12 @@ l'interface (plus propre), soit `scripts/backup.sh` ici puis `scripts/restore.sh
 | Serveur CrowdSec | 8080/TCP | décisions de bannissement |
 | Console HarfangLab (`…hurukai.io`) | 8443/TCP | alertes EDR, isolation |
 | `login.microsoftonline.com`, `manage.office.com` | 443/TCP | Microsoft 365 / Entra ID |
-| `updates.maxmind.com` | 443/TCP | bases GeoIP |
+| `download.maxmind.com` | 443/TCP | bases GeoIP |
 | `www.cisa.gov`, `www.cert.ssi.gouv.fr` | 443/TCP | veille |
 | Fournisseur d'IA choisi, ou serveur Ollama interne (11434/TCP) | 443/TCP | assistant IA |
 | Webhook Teams, serveur ntfy | 443/TCP | notifications |
-| `cloud.gravityzone.bitdefender.com` | 443/TCP | isolation Bitdefender (facultatif) |
+| `cloudgz.gravityzone.bitdefender.com` | 443/TCP | incidents et quarantaine GravityZone (API) |
+| `<tenant>.varonis.io` | 443/TCP | alertes Varonis SaaS (API) |
 
 ## 3. Accès à préparer, par ordre de priorité
 
@@ -66,9 +66,10 @@ l'interface (plus propre), soit `scripts/backup.sh` ici puis `scripts/restore.sh
 | 6 | Microsoft 365 | Inscription d'application Entra ID : ID du tenant, ID de l'application, secret (permission ActivityFeed.Read) | Intégrations › Microsoft 365 |
 | 7 | Notifications | Webhook Teams (flux Workflows) et/ou sujet ntfy | Paramètres › Notifications |
 | 8 | CrowdSec | Clé de bouncer (`cscli bouncers add minisoc`) | Intégrations › CrowdSec |
-| 9 | Bitdefender | Publication du reverse proxy, jeton de réception, clé d'API Event Push | Intégrations › Bitdefender |
-| 10 | Vectra, Varonis | Destination syslog CEF vers la VM (aucun compte) | Consoles Vectra et Varonis |
-| 11 | GeoIP | Nouvelle clé MaxMind (l'actuelle a servi aux essais) | `.env` de la VM |
+| 9 | Bitdefender | Clé d'API de lecture (Incidents API, Quarantine API) et Access URL | Intégrations › Bitdefender |
+| 10 | Varonis SaaS | Clé d'API au rôle Threat Detection Integrator, adresse de l'instance | Intégrations › Varonis |
+| 10 bis | Vectra | Client d'API en lecture seule (recommandé), ou destination syslog CEF vers la VM | Console Vectra |
+| 11 | GeoIP | Nouvelle clé MaxMind (l'actuelle a servi aux essais) | Intégrations › Géolocalisation |
 | 12 | Assistant IA | Clé du fournisseur choisi, ou adresse d'un Ollama joignable depuis la VM | Intégrations › Assistant IA |
 | 13 | Isolation (après essais) | Jeton HarfangLab avec le droit d'isolation ; clé GravityZone Incidents + Network | Intégrations › Isolation de poste |
 | — | NinjaOne | Exemple de réponse de l'API vulnérabilités (pour développer le connecteur) | à transmettre |

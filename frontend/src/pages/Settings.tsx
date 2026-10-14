@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { Card, ErrorBanner, PageHeader } from "../components/ui";
+import WallSettings from "../components/WallSettings";
 
 type Kind = "text" | "secret" | "bool" | "int" | "pem" | "list" | "choice";
 interface FieldDef {
@@ -49,6 +50,8 @@ const SMTP_FIELDS: FieldDef[] = [
 ];
 
 const DETECTION_FIELDS: FieldDef[] = [
+  { key: "dns_server", label: "Serveur DNS interne (Active Directory)", kind: "text", placeholder: "192.168.2.9",
+    help: "Affiche le nom des machines à côté des adresses internes (résolution inverse). Seules les adresses privées sont résolues, auprès de ce seul serveur." },
   { key: "home_countries", label: "Pays habituels des connexions (codes ISO)", kind: "list", placeholder: "FR, BE",
     help: "Une connexion depuis un autre pays est signalée dans la qualification des alertes VPN (base GeoIP requise)." },
   { key: "threat_feeds_enabled", label: "Veille automatique : CISA KEV et CERT-FR (accès Internet sortant requis)", kind: "bool" },
@@ -360,6 +363,7 @@ const TABS = [
   { id: "smtp", label: "Messagerie (SMTP)" },
   { id: "notify", label: "Notifications" },
   { id: "followup", label: "Suivi" },
+  { id: "wall", label: "Écran mural" },
 ];
 
 export default function Settings() {
@@ -388,6 +392,7 @@ export default function Settings() {
         {tab === "detection" && <SettingsForm key="detection" group="detection" fields={DETECTION_FIELDS} />}
         {tab === "retention" && <SettingsForm key="retention" group="retention" fields={RETENTION_FIELDS} />}
         {tab === "followup" && <SettingsForm key="followup" group="followup" fields={FOLLOWUP_FIELDS} />}
+        {tab === "wall" && <WallSettings />}
         {tab === "notify" && <NotifyTester />}
         {tab === "notify" && <NotifyRouting />}
         {tab === "notify" && <SettingsForm key="notify" group="notify" fields={NOTIFY_FIELDS} />}

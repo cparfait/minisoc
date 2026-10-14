@@ -11,7 +11,7 @@ import ipaddress
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,12 +23,14 @@ from minisoc.api.deps import COOKIE_NAME, client_ip, current_user, get_db
 from minisoc.config import get_settings
 from minisoc.ecs import SEVERITY_BY_NAME, severity_name
 from minisoc.models import OPEN_STATUSES, Alert, DisplayToken
+from minisoc.resolver import annotate
 from minisoc.security import session_id
+from minisoc.settings_store import store as settings_store
 
 router = APIRouter(prefix="/api/wall", tags=["wall"])
 
 WALL_COOKIE = "minisoc_wall"
-MAX_ALERTS = 10
+MAX_ALERTS = 30
 _USER_IN_ENTITY = re.compile(r"user\.name=([^|]+)")
 
 
@@ -97,7 +99,12 @@ async def wall_viewer(request: Request, db: AsyncSession = Depends(get_db)) -> d
 
 
 @router.get("/overview")
-async def wall_overview(request: Request, viewer: dict = Depends(wall_viewer), db: AsyncSession = Depends(get_db)):
+async def wall_overview(
+    request: Request,
+    limit: int = Query(MAX_ALERTS, ge=5, le=50, description="éléments par liste (réglé sur chaque écran)"),
+    viewer: dict = Depends(wall_viewer),
+    db: AsyncSession = Depends(get_db),
+):
     state = request.app.state
     high = SEVERITY_BY_NAME["high"]
     alerts = (
@@ -105,7 +112,7 @@ async def wall_overview(request: Request, viewer: dict = Depends(wall_viewer), d
             select(Alert)
             .where(Alert.status.in_(OPEN_STATUSES), Alert.severity >= high)
             .order_by(Alert.severity.desc(), (Alert.status == "new").desc(), Alert.last_seen.desc())
-            .limit(MAX_ALERTS)
+            .limit(limit)
         )
     ).all()
     unhandled = await db.scalar(
@@ -116,7 +123,7 @@ async def wall_overview(request: Request, viewer: dict = Depends(wall_viewer), d
     )
     mask = viewer["mask_users"]
     try:
-        activity = await auth_activity(state.store, top=5)
+        activity = await auth_activity(state.store, top=limit)
         clickhouse_error = False
     except Exception:  # noqa: BLE001 - l'écran reste utile sans la base des événements
         activity = {"top_attackers": [], "auth_failures_hourly": [], "failures_by_country": []}
@@ -124,6 +131,31 @@ async def wall_overview(request: Request, viewer: dict = Depends(wall_viewer), d
     if mask:
         for row in activity["top_attackers"]:
             row["sample_users"] = [mask_name(u) for u in row["sample_users"] if u]
+
+    # Écrans supplémentaires (défilement) : accès VPN, vulnérabilités, dernières alertes (affichage immédiat)
+    cfg = await settings_store.load(db)
+    dns = str(cfg.get("dns_server") or "")
+    await annotate(activity["top_attackers"], dns)
+    try:
+        from minisoc.stats import vpn_activity
+
+        vpn = await vpn_activity(state.store, recent=limit, home_countries=cfg.get("home_countries") or ["FR"])
+        await annotate(vpn["recent"], dns)
+        if mask:
+            for row in vpn["recent"]:
+                row["user"] = mask_name(row["user"]) if row["user"] else ""
+            vpn["targeted"] = [{**t, "user": mask_name(t["user"])} for t in vpn["targeted"]]
+    except Exception:  # noqa: BLE001
+        vpn = None
+    flash_min = SEVERITY_BY_NAME.get(str(cfg.get("wall_flash_min_severity") or "high"), high)
+    newest = (
+        await db.scalars(
+            select(Alert)
+            .where(Alert.status.in_(OPEN_STATUSES), Alert.severity >= flash_min)
+            .order_by(Alert.id.desc())
+            .limit(5)
+        )
+    ).all()
 
     return {
         "screen": viewer["name"],
@@ -136,6 +168,40 @@ async def wall_overview(request: Request, viewer: dict = Depends(wall_viewer), d
         "sources": await sources_status(state),
         **activity,
         "clickhouse_error": clickhouse_error,
+        "vpn": vpn,
+        "config": {
+            "pages": list(cfg.get("wall_pages") or ["alertes", "vpn", "auth", "vuln", "sources"]),
+            "rotation": int(cfg.get("wall_rotation") if cfg.get("wall_rotation") is not None else 20),
+            "flash_min_severity": str(cfg.get("wall_flash_min_severity") or "high"),
+            "sound_default": bool(cfg.get("wall_sound_default")),
+        },
+        "vulnerabilities": await _vulnerabilities(state.redis, limit),
+        "newest": [{**_alert(a, mask), "created_at": a.created_at.isoformat(), "module": (a.modules or [""])[0]}
+                   for a in newest],
+    }
+
+
+async def _vulnerabilities(redis, limit: int = 20) -> dict | None:
+    """Synthèse du dernier relevé Cyberwatch (failles KEV présentes, fin de support) pour l'écran mural."""
+    import json
+
+    from minisoc.connectors.cyberwatch import SUMMARY_KEY
+
+    raw = await redis.get(SUMMARY_KEY)
+    if not raw:
+        return None
+    data = json.loads(raw)
+    return {
+        "assets": data.get("assets", 0),
+        "with_kev": data.get("with_kev", 0),
+        "kev_cves": data.get("kev_cves", 0),
+        "eol": data.get("eol", 0),
+        "with_prioritized": data.get("with_prioritized", 0),
+        "exposed": [
+            {"name": a.get("name"), "server": a.get("server"), "kev": len(a.get("kev") or []),
+             "prioritized": a.get("prioritized_count", 0), "os": a.get("os"), "eol_passed": a.get("eol_passed")}
+            for a in (data.get("exposed") or [])[:limit]
+        ],
     }
 
 

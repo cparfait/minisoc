@@ -5,6 +5,7 @@
 # Ne recharge pas sshd : l'appelant vérifie (sshd -t) puis recharge.
 set -eu
 BACKUP_SERVER=""
+SSH_PORT=22
 [ -f /etc/minisoc/firewall.conf ] && . /etc/minisoc/firewall.conf
 users="adminsoc"
 if [ -n "$BACKUP_SERVER" ] && [ -s /var/lib/minisoc-backup/.ssh/authorized_keys ]; then
@@ -21,6 +22,7 @@ KbdInteractiveAuthentication no"
 fi
 cat > /etc/ssh/sshd_config.d/10-minisoc.conf <<EOF
 # Généré par minisoc-sshd-config : relancer sudo minisoc-setup plutôt que modifier ce fichier.
+Port $SSH_PORT
 PermitRootLogin no
 $auth
 AllowUsers $users

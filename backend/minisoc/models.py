@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -35,6 +35,8 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Préférences d'affichage (tableau de bord, écran mural) : clé -> réglages, propres à chaque utilisateur
+    preferences: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
 
 
 class AuthChallenge(Base):
@@ -195,7 +197,7 @@ class Asset(Base):
     service: Mapped[str] = mapped_column(String(256), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     asset_type: Mapped[str] = mapped_column(String(32), default="")  # serveur, poste, admin, service…
-    source: Mapped[str] = mapped_column(String(32), default="manual")  # manual, ad, ninjaone, events
+    source: Mapped[str] = mapped_column(String(32), default="manual")  # manual, ad, ninjaone, cyberwatch, events
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)  # classé par la DSI
     internet_exposed: Mapped[bool] = mapped_column(Boolean, default=False)  # service accessible depuis Internet
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),

@@ -90,7 +90,9 @@ def serialize(
         for host in hosts:
             info = index.host(host["name"])
             if info:
-                host.update(criticality=info.criticality, owner=info.owner, service=info.service)
+                host.update(
+                    criticality=info.criticality, owner=info.owner, service=info.service, asset_type=info.asset_type
+                )
         user = str(((alert.details or {}).get("sample") or {}).get("user.name") or "")
         extra = criticality_reasons(index, [h["name"] for h in hosts], user)
     score, reasons = priority(alert, machines or {}, [h["name"] for h in hosts], extra=extra)

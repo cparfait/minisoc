@@ -1,6 +1,8 @@
-import { Radar } from "lucide-react";
+import { ExternalLink, Radar } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api";
+import CyberwatchExposure from "../components/CyberwatchExposure";
 import ParcExposure from "../components/ParcExposure";
 import { Card, Empty, ErrorBanner, PageHeader } from "../components/ui";
 import { usePolling } from "../hooks";
@@ -47,6 +49,7 @@ export default function Veille() {
       </p>
       <ErrorBanner error={error} />
       <ParcExposure />
+      <CyberwatchExposure />
       <div className="grid-2">
         <Card title="CERT-FR : alertes et avis récents">
           {data && !data.certfr.length ? (
@@ -86,7 +89,10 @@ export default function Veille() {
                   <tr key={k.cve} title={k.description}>
                     <td className="nowrap">{dateFr(k.added)}</td>
                     <td className="mono nowrap">
-                      <a href={`https://nvd.nist.gov/vuln/detail/${k.cve}`} target="_blank" rel="noopener noreferrer">{k.cve}</a>
+                      <Link to={`/cve/${k.cve}`} title="Machines touchées, détections">{k.cve}</Link>{" "}
+                      <a href={`https://nvd.nist.gov/vuln/detail/${k.cve}`} target="_blank" rel="noopener noreferrer" className="console-link" title="Fiche NVD">
+                        <ExternalLink size={12} />
+                      </a>
                       {k.ransomware && <span className="intel-tag">rançongiciel</span>}
                     </td>
                     <td>

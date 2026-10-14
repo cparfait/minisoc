@@ -52,7 +52,7 @@ async def ingest_bitdefender(request: Request):
     async with sessionmaker()() as db:
         cfg = await settings_store.load(db)
     ip = client_ip(request)
-    if not cfg.get("src_bitdefender_enabled", True):
+    if not cfg.get("src_bitdefender_enabled", False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Intégration Bitdefender désactivée")
     allowed = cfg.get("bitdefender_allowed_ips") or []
     if allowed and not _ip_allowed(ip, allowed):

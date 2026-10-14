@@ -38,6 +38,7 @@ from minisoc.db import init_db, sessionmaker
 from minisoc.events_store import EventStore
 from minisoc.rules.custom import load_all
 from minisoc.rules.engine import RuleSet
+from minisoc.upgrade import keep_working_integrations
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
     await app.state.store.ensure_schema()
     async with sessionmaker()() as session:
         app.state.rules = RuleSet(await load_all(session, settings.rules_dir))
+        await keep_working_integrations(session, app.state.redis)  # mise à jour d'une installation existante
     yield
     await app.state.redis.aclose()
     await app.state.store.close()

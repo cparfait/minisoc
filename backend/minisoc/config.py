@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     ingest_token: str = ""  # jeton partagé avec Vector
     bitdefender_token: str = ""  # valeur attendue dans l'en-tête Authorization du push GravityZone
     bitdefender_allowed_ips: list[str] = []  # vide = pas de filtrage (à restreindre en production)
-    bitdefender_console_url: str = "https://cloud.gravityzone.bitdefender.com"
+    bitdefender_console_url: str = "https://cloudgz.gravityzone.bitdefender.com"
 
     # Connecteur HarfangLab
     harfanglab_url: str = ""

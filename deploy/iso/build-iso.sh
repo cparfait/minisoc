@@ -3,7 +3,8 @@
 # À lancer dans un conteneur Debian, depuis la racine du projet (PowerShell ou Git Bash) :
 #   docker run --rm -v "${PWD}:/work" -w /work debian:13-slim sh deploy/iso/build-iso.sh
 # Entrées : deploy/iso/vm.conf (copie de vm.conf.example) et, si présent, deploy/iso/authorized_keys.
-# Sortie : build/iso/minisoc-<version>-amd64-auto.iso
+# Sortie : build/iso/minisoc-debian-<version>-amd64-auto-<date>-<heure>-<commit>.iso (« -modifie » si des
+# changements ne sont pas commités) ; les ISO précédentes sont effacées une fois la nouvelle prête.
 set -eu
 HERE=deploy/iso
 OUT=${MINISOC_ISO_OUT:-build/iso}
@@ -52,13 +53,20 @@ mkdir -p "$work/minisoc"
   [ -z "$ADMIN_PASSWORD_HASH" ] || printf 'd-i passwd/user-password-crypted password %s\n' "$ADMIN_PASSWORD_HASH"
 } > "$work/site.cfg"
 
-printf "VM_NTP='%s'\nHTTP_PROXY='%s'\nDOCKER_POOL='%s'\n" "$VM_NTP" "$HTTP_PROXY" "${DOCKER_POOL:-10.255.0.0/16}" \
+printf "VM_NTP='%s'\nHTTP_PROXY='%s'\nDOCKER_POOL='%s'\nDOCKER_MIRROR='%s'\n" "$VM_NTP" "$HTTP_PROXY" \
+  "${DOCKER_POOL:-10.255.0.0/16}" "${DOCKER_MIRROR:-}" \
   > "$work/minisoc/site.env"
 cp "$HERE/choose-disk.sh" "$HERE/late.sh" "$HERE/firstboot.sh" "$HERE/minisoc-firstboot.service" \
-  "$HERE/minisoc-sshd-config.sh" "$HERE/minisoc-setup.sh" "$HERE/banner.txt" \
-  deploy/firewall/minisoc-firewall deploy/firewall/minisoc-firewall.service "$work/minisoc/"
-# Application : fichiers du dépôt (suivis ou nouveaux), sans ce que .gitignore exclut (.env, secrets, données)
+  "$HERE/minisoc-sshd-config.sh" "$HERE/minisoc-setup.sh" "$HERE/banner.txt" "$HERE/minisoc-motd" \
+  "$HERE/minisoc-update.sh" deploy/firewall/minisoc-firewall deploy/firewall/minisoc-firewall.service "$work/minisoc/"
+# Version : date et heure de Paris (règle écrite en clair : l'image slim n'a pas la base des fuseaux horaires) et
+# commit, « -modifie » si des changements ne sont pas commités. Nom de l'ISO et du paquet de mise à jour,
+# /etc/minisoc/version sur la VM.
 git config --global --add safe.directory "$(pwd)"
+stamp=$(TZ='CET-1CEST,M3.5.0,M10.5.0/3' date +%Y%m%d-%H%M)-$(git rev-parse --short HEAD)
+[ -z "$(git status --porcelain -- . ':!build')" ] || stamp="$stamp-modifie"
+echo "$stamp" > "$work/minisoc/VERSION"
+# Application : fichiers du dépôt (suivis ou nouveaux), sans ce que .gitignore exclut (.env, secrets, données)
 git ls-files -co --exclude-standard | grep -v -e '^build/' -e '^deploy/iso/' \
   | tar -T - -czf "$work/minisoc/minisoc.tar.gz"
 echo "Application : $(tar -tzf "$work/minisoc/minisoc.tar.gz" | wc -l) fichiers ($(du -h "$work/minisoc/minisoc.tar.gz" | cut -f1))"
@@ -74,7 +82,9 @@ for f in "$work"/site.cfg "$work"/minisoc/*; do
 done
 sed 's/\r$//' "$HERE/preseed.cfg" > "$work/preseed.cfg"
 
-args="auto=true priority=high preseed/file=/cdrom/preseed.cfg language=fr country=FR locale=fr_FR.UTF-8 keymap=fr"
+# Sans auto=true : la langue et le clavier (AZERTY) sont appliqués dès le début, avant le réseau et le mot de passe.
+# « fr(latin9) » et non « fr » : l'installateur de Debian 13 ne connaît que ce choix et retomberait sinon sur « us ».
+args="preseed/file=/cdrom/preseed.cfg priority=high language=fr country=FR locale=fr_FR.UTF-8 keymap=fr(latin9)"
 xorriso -osirrox on -indev "$CACHE/$iso" -extract /boot/grub/grub.cfg "$work/grub-debian.cfg" 2>/dev/null
 chmod u+w "$work/grub-debian.cfg"
 
@@ -104,8 +114,7 @@ EOF
 printf 'Mini-SOC : installation automatique (EFFACE LE DISQUE SYSTEME). Appuyer sur Entree.\n' > "$work/boot.txt"
 
 # ---------- ISO finale (secteurs de démarrage d'origine rejoués) ----------
-target="$OUT/minisoc-debian-$version-amd64-auto.iso"
-rm -f "$target"
+target="$OUT/minisoc-debian-$version-amd64-auto-$stamp.iso"
 xorriso -indev "$CACHE/$iso" -outdev "$target" \
   -map "$work/preseed.cfg" /preseed.cfg \
   -map "$work/site.cfg" /site.cfg \
@@ -117,5 +126,25 @@ xorriso -indev "$CACHE/$iso" -outdev "$target" \
   -boot_image any replay 2>&1 | grep -iE 'error|fail|sorry' || true
 [ -s "$target" ] || { echo "Échec de la construction"; exit 1; }
 (cd "$OUT" && sha256sum "${target##*/}" > "${target##*/}.sha256")
+# Une fois la nouvelle ISO prête, les précédentes sont effacées (seule la dernière est conservée)
+for old in "$OUT"/minisoc-debian-*.iso; do
+  [ "$old" = "$target" ] || { rm -f "$old" "$old.sha256"; echo "Ancienne ISO effacée : ${old##*/}"; }
+done
 echo "ISO prête : $target ($(du -h "$target" | cut -f1))"
 echo "SHA-256 : $(cut -d' ' -f1 "$target.sha256")"
+
+# ---------- Paquet de mise à jour des VM déjà installées (mêmes fichiers, sans les réglages du site) ----------
+upd="$work/update/minisoc-update"
+mkdir -p "$upd"
+for f in VERSION minisoc.tar.gz firstboot.sh minisoc-setup.sh minisoc-sshd-config.sh minisoc-firewall \
+         minisoc-firewall.service minisoc-motd banner.txt minisoc-update.sh; do
+  cp "$work/minisoc/$f" "$upd/"
+done
+bundle="$OUT/minisoc-update-$stamp.tar.gz"
+tar -czf "$bundle" -C "$work/update" minisoc-update
+(cd "$OUT" && sha256sum "${bundle##*/}" > "${bundle##*/}.sha256")
+for old in "$OUT"/minisoc-update-*.tar.gz; do
+  [ "$old" = "$bundle" ] || { rm -f "$old" "$old.sha256"; echo "Ancien paquet de mise à jour effacé : ${old##*/}"; }
+done
+echo "Mise à jour prête : $bundle ($(du -h "$bundle" | cut -f1))"
+echo "  Sur une VM installée : scp ${bundle##*/} adminsoc@<IP>:/tmp/ puis sudo minisoc-update /tmp/${bundle##*/}"

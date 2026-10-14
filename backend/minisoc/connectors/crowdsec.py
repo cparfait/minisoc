@@ -53,7 +53,7 @@ class CrowdSecConnector:
             async with self.sessions() as session:
                 cfg = await settings_store.load(session)
             current = (cfg.get("crowdsec_url"), cfg.get("crowdsec_api_key"), cfg.get("crowdsec_community"))
-            if not current[0] or not current[1] or not cfg.get("src_crowdsec_enabled", True):
+            if not current[0] or not current[1] or not cfg.get("src_crowdsec_enabled", False):
                 await asyncio.sleep(POLL_SECONDS)
                 continue
             if current != configured_for:  # nouvelle configuration : relecture complète

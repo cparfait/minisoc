@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from minisoc.connectors import gravityzone
 from minisoc.parsers.common import first
 
 EDRS = ("harfanglab", "bitdefender")
@@ -100,7 +101,7 @@ async def _bitdefender(cfg: dict, target: Target, release: bool) -> str:
     token = base64.b64encode(f"{cfg['bitdefender_api_key']}:".encode()).decode()
     payload = {"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": method, "params": {"endpointId": target.agent_id}}
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(cfg["bitdefender_api_url"].rstrip("/") + "/v1.0/jsonrpc/incidents", json=payload,
+        response = await client.post(gravityzone.api_url(cfg) + "/v1.0/jsonrpc/incidents", json=payload,
                                      headers={"Authorization": f"Basic {token}"})
     if response.status_code in (401, 403):
         raise IsolationError("Bitdefender : clé d'API refusée ou sans le droit « Incidents »")
@@ -130,7 +131,7 @@ async def test(cfg: dict) -> tuple[bool, str]:
         payload = {"jsonrpc": "2.0", "id": "1", "method": "getEndpointsList", "params": {"perPage": 1}}
         async with httpx.AsyncClient(timeout=20) as c:
             try:
-                r = await c.post(cfg["bitdefender_api_url"].rstrip("/") + "/v1.0/jsonrpc/network", json=payload,
+                r = await c.post(gravityzone.api_url(cfg) + "/v1.0/jsonrpc/network", json=payload,
                                  headers={"Authorization": f"Basic {token}"})
                 ok = r.status_code == 200 and not r.json().get("error")
                 results.append((ok, f"Bitdefender : HTTP {r.status_code}"))

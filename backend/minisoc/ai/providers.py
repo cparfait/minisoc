@@ -224,12 +224,17 @@ async def _sse(p: Provider, url: str, headers: dict, body: dict, model_id: str) 
 
 # --- Ollama (local) ----------------------------------------------------------------------------------------------
 
+# Fenêtre de contexte demandée à Ollama. Par défaut, Ollama s'en tient à 2 048 ou 4 096 jetons et tronque sans
+# prévenir le début de la conversation, c'est-à-dire les données de l'alerte : l'analyse devient alors générique.
+OLLAMA_CONTEXT = 16384
+
 async def _ollama(cfg: dict, p: Provider, system: str, messages: list[dict],
                   result: StreamResult) -> AsyncIterator[str]:
     url = base_url(cfg) + "/api/chat"
     model_id = model(cfg)
     body = {"model": model_id, "stream": True, "messages": [{"role": "system", "content": system}, *messages],
-            "options": {"num_predict": int(cfg.get("ai_max_tokens") or 4000) + THINKING_HEADROOM}}
+            "options": {"num_predict": int(cfg.get("ai_max_tokens") or 4000) + THINKING_HEADROOM,
+                        "num_ctx": OLLAMA_CONTEXT}}
     try:
         # Modèle local : le premier mot peut tarder (chargement en mémoire, GPU partagé avec d'autres usages)
         async with httpx.AsyncClient(timeout=httpx.Timeout(15, read=600)) as client, \

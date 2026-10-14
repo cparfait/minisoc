@@ -12,11 +12,12 @@ Avancement et reste à faire : [docs/00-suivi-projet.md](docs/00-suivi-projet.md
 ## Architecture
 
 ```
-Équipements ──syslog──► Vector ──HTTP──► API ──► Redis Streams ──► Worker ──► ClickHouse (événements, 90 j)
-Bitdefender ──push HTTPS──► Caddy ► API ─┘                           │  └──► PostgreSQL (alertes, audit)
-HarfangLab ◄──API REST── Worker (connecteur)                         └──► Notifications (e-mail, Teams, ntfy)
-Navigateur ──HTTPS──► Caddy ──► interface React + API
+Équipements du LAN ──syslog──► Vector ──HTTP──► API ──► Redis Streams ──► Worker ──► ClickHouse (événements)
+Outils cloud (HarfangLab, GravityZone, Varonis…) ◄──API, HTTPS sortant── Worker ──► PostgreSQL (alertes, audit)
+Navigateur (LAN) ──HTTPS──► Caddy ──► interface React + API          Worker ──► Notifications (e-mail, Teams)
 ```
+
+Le Mini-SOC n'est **jamais** joignable depuis Internet : les outils cloud sont lus par leur API, en flux sortants.
 
 | Composant | Rôle |
 | --- | --- |
@@ -75,16 +76,13 @@ journaux > Ajouter un serveur syslog* : IP de la VM, port **514**, **TCP**, form
 Le format des journaux varie selon la version : envoyer quelques lignes réelles pour ajuster
 `parsers/sophos.py` (notamment les libellés des motifs d'échec utilisés par la qualification).
 
-### Bitdefender GravityZone (push)
-Le push exige une URL HTTPS joignable par le cloud Bitdefender avec un certificat valide : publier
-**uniquement** `/api/ingest/bitdefender` via un reverse proxy en DMZ, restreint aux IP de Bitdefender
-(`MINISOC_BITDEFENDER_ALLOWED_IPS`). Activation par l'API publique (méthode `setPushEventSettings`,
-voir la documentation de l'API GravityZone) avec :
-- `serviceType` : `jsonRPC`
-- `serviceSettings.url` : `https://<url publique>/api/ingest/bitdefender`
-- `serviceSettings.authorization` : la valeur de `MINISOC_BITDEFENDER_TOKEN`
-- `serviceSettings.requireValidSslCertificate` : `true`
-- événements : `av`, `hd`, `avc`, `ransomware-mitigation`, `new-incident`, `network-monitor`, `aph`, `modules`
+### Bitdefender GravityZone et Varonis SaaS (API)
+Le Mini-SOC n'est **jamais** publié sur Internet : il lit ces services cloud par leur API, en HTTPS sortant.
+- GravityZone : clé d'API avec **Incidents API** et **Quarantine API** seulement ; incidents EDR et fichiers mis en
+  quarantaine, clôture des incidents traités dans la console (guide `bitdefender`). Le service « Event Push » n'est
+  pas utilisé.
+- Varonis SaaS : clé d'API au rôle **Threat Detection Integrator** ; alertes des modèles de menace avec le délai
+  mesuré entre l'activité et l'alerte (guide `varonis`).
 
 ### HarfangLab (API)
 Créer un compte d'API **en lecture seule** dans la console, puis *Intégrations > HarfangLab / CrowdSec* : adresse et jeton,
@@ -274,11 +272,10 @@ réussies depuis des IP du botnet qualifiées « attaque » en critique.
   du serveur. Restauration : `./scripts/restore.sh <archive>` — à tester chaque trimestre sur une machine de recette.
 - **Schéma de la base** : migrations Alembic appliquées automatiquement au démarrage ;
   `docker compose exec api python -m minisoc.cli db-current` affiche la version.
-- **GeoIP** : avec un compte MaxMind gratuit, renseigner `MAXMIND_ACCOUNT_ID` et `MAXMIND_LICENSE_KEY` dans `.env`,
-  décommenter `COMPOSE_PROFILES=geoip` puis `docker compose up -d geoipupdate` (téléchargement et mise à jour
-  automatique tous les 3 jours). Ou déposer manuellement `GeoLite2-City.mmdb` (ou `-Country`) et `GeoLite2-ASN.mmdb` (MaxMind, compte gratuit) ou les
-  bases DB-IP Lite dans `data/geoip/` : pays et opérateur ajoutés aux événements, règle UC-04 (connexion VPN
-  depuis un pays inhabituel) active ; bases relues à chaud, mise à jour mensuelle conseillée.
+- **GeoIP** : avec un compte MaxMind gratuit, Intégrations › Géolocalisation › Configurer : identifiant du compte
+  et clé de licence, puis activer. Le worker télécharge les bases GeoLite2 (pays, opérateur) et les met à jour tous
+  les 3 jours : pays et opérateur ajoutés aux événements, règle UC-04 (connexion VPN depuis un pays inhabituel)
+  active.
 - Journaux : `docker compose logs -f worker api vector`
 - Après modification de `deploy/vector/vector.yaml` : Vector la recharge seul ; en cas de doute,
   `docker compose up -d --force-recreate vector` (les journaux en tampon disque sont conservés).

@@ -7,6 +7,8 @@ WORKDIR /app
 RUN groupadd --system minisoc && useradd --system --gid minisoc --home-dir /app --no-create-home minisoc
 # Archives scellées : volume nommé, initialisé avec ce propriétaire (compte non privilégié)
 RUN mkdir -p /var/lib/minisoc/archives && chown -R minisoc:minisoc /var/lib/minisoc
+# Bases GeoIP : volume nommé initialisé avec ce propriétaire (téléchargées par le worker, compte non privilégié)
+RUN mkdir -p /app/data/geoip && chown minisoc:minisoc /app/data/geoip
 COPY pyproject.toml ./
 COPY minisoc ./minisoc
 RUN pip install .

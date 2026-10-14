@@ -28,6 +28,7 @@ export const MODULE_LABEL: Record<string, string> = {
   varonis: "Varonis",
   crowdsec: "CrowdSec",
   ninjaone: "NinjaOne",
+  cyberwatch: "Cyberwatch",
   ogo: "OGO Security",
   syslog: "Syslog générique",
   unparsed: "Non analysé",

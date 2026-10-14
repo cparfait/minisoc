@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from minisoc import audit, bus
+from minisoc import audit, bus, geoip_update
 from minisoc.ai.providers import configured as ai_configured
 from minisoc.api import admin, ai, response
 from minisoc.api.deps import ADMIN, ANY_USER, client_ip, get_db
@@ -25,10 +25,19 @@ router = APIRouter(tags=["integrations"])
 
 async def _extras(redis, cfg: dict) -> dict[str, dict]:
     geo = json.loads(await redis.get(GEOIP_STATUS_KEY) or "{}")
+    download = await geoip_update.state(redis)
     kev = await redis.hgetall(KEV_META)
     files = geo.get("files") or []
+    if download.get("error"):
+        geo_detail = f"Téléchargement en échec : {download['error']}"
+    elif files:
+        geo_detail = ", ".join(files) + (f" (mises à jour le {download['updated'][:10]})" if download.get("updated") else "")
+    elif not geoip_update.configured(cfg):
+        geo_detail = "Renseigner l'identifiant et la clé MaxMind (Configurer)"
+    else:
+        geo_detail = "Téléchargement des bases en cours (5 minutes au plus)"
     return {
-        "geoip": {"ready": bool(files), "detail": ", ".join(files) if files else "Aucune base dans data/geoip/"},
+        "geoip": {"ready": bool(files), "detail": geo_detail},
         "veille": {"ready": bool(kev.get("updated")),
                    "detail": f"{kev.get('count', '?')} CVE dans le catalogue KEV" if kev else "Jamais récupérée"},
         "ai": {"ready": ai_configured(cfg), "detail": cfg.get("ai_provider", "")},
@@ -127,6 +136,29 @@ async def test_integration(integration_id: str, request: Request, db: AsyncSessi
         ok, detail = await ninjaone.test(await settings_store.load(db, force=True))
         await audit.record(db, actor=user.username, ip=client_ip(request), action="ninjaone_test",
                            obj="integration:ninjaone", detail={"ok": ok})
+        await db.commit()
+        return {"ok": ok, "detail": detail}
+    if item.test in ("varonis", "gravityzone", "vectra"):
+        from minisoc.connectors import gravityzone, varonis, vectra
+
+        connector = {"varonis": varonis, "gravityzone": gravityzone, "vectra": vectra}[item.test]
+        ok, detail = await connector.test(await settings_store.load(db, force=True))
+        await audit.record(db, actor=user.username, ip=client_ip(request), action=f"{item.test}_test",
+                           obj=f"integration:{item.id}", detail={"ok": ok})
+        await db.commit()
+        return {"ok": ok, "detail": detail}
+    if item.test == "geoip":
+        ok, detail = await geoip_update.test(await settings_store.load(db, force=True))
+        await audit.record(db, actor=user.username, ip=client_ip(request), action="geoip_test",
+                           obj="integration:geoip", detail={"ok": ok})
+        await db.commit()
+        return {"ok": ok, "detail": detail}
+    if item.test == "cyberwatch":
+        from minisoc.connectors import cyberwatch
+
+        ok, detail = await cyberwatch.test(await settings_store.load(db, force=True))
+        await audit.record(db, actor=user.username, ip=client_ip(request), action="cyberwatch_test",
+                           obj="integration:cyberwatch", detail={"ok": ok})
         await db.commit()
         return {"ok": ok, "detail": detail}
     if item.test == "isolation":

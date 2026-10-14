@@ -21,5 +21,13 @@ compte verrouillé, fautes de frappe.
 6. Si l'attaque vient de peu d'IP : les bloquer sur le XGS.
 7. Désactiver le portail utilisateur sur l'interface WAN s'il n'est pas indispensable.
 
+## Adresse source « 127.0.0.1 »
+Sur les versions récentes de SFOS, le portail VPN est servi par un relais interne du pare-feu : ses journaux
+d'authentification indiquent 127.0.0.1 au lieu de l'adresse de l'attaquant. Conséquences :
+- la règle UC-51 (nombre de comptes différents en échec) prend le relais de UC-01 ;
+- le blocage automatique « par adresse IP » du XGS est inefficace sur ce portail (il bloquerait 127.0.0.1) ;
+- mesures efficaces : retirer le portail VPN de la zone WAN (Administration › Accès à l'appareil) s'il n'est pas
+  indispensable, sinon le limiter aux pays utiles, et imposer le MFA ; vérifier les comptes AD visés.
+
 ## Prévenir
 - Responsable informatique si un compte a été compromis.

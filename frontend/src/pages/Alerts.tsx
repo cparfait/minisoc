@@ -33,6 +33,7 @@ const PERIODS: { value: string; label: string; hours?: number }[] = [
   { value: "30d", label: "30 derniers jours", hours: 24 * 30 },
   { value: "custom", label: "Dates choisies…" },
 ];
+const SORT_KEY = "minisoc.alerts.sort";
 const SORTS: { value: string; label: string }[] = [
   { value: "priority", label: "Priorité" },
   { value: "recent", label: "Activité la plus récente" },
@@ -74,7 +75,12 @@ export default function Alerts() {
   const period = get("period");
   const from = get("from");
   const to = get("to");
-  const sort = get("sort", "priority");
+  // Tri : celui de l'adresse, sinon le dernier choisi (mémorisé sur ce poste), sinon la priorité
+  const sort = get("sort", localStorage.getItem(SORT_KEY) || "priority");
+  const setSort = (value: string) => {
+    localStorage.setItem(SORT_KEY, value);
+    update({ sort: value });
+  };
   const view = get("view");
   const pageSize = Number(get("size", "50")) || 50;
   const q = get("q");
@@ -269,7 +275,15 @@ export default function Alerts() {
           </button>
         )}
         <span className="spacer" />
-        <select value={sort} onChange={(e) => update({ sort: e.target.value === "priority" ? "" : e.target.value })} aria-label="Tri">
+        <div className="sort-toggle" role="group" aria-label="Ordre de la liste">
+          <button type="button" className={sort === "priority" ? "active" : ""} onClick={() => setSort("priority")}>
+            Par priorité
+          </button>
+          <button type="button" className={sort === "recent" ? "active" : ""} onClick={() => setSort("recent")}>
+            Plus récentes
+          </button>
+        </div>
+        <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Tri">
           {SORTS.map((s) => (
             <option key={s.value} value={s.value}>
               Tri : {s.label}

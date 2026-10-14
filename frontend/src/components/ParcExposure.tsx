@@ -84,9 +84,11 @@ export default function ParcExposure() {
                 {data.exposed.map((d) => (
                   <tr key={d.id}>
                     <td>
-                      <strong>{d.name}</strong>
-                      {d.server && <span className="role-tag role-service">serveur</span>}
-                      {d.offline && <span className="muted small"> · hors ligne</span>}
+                      <div className="asset-name">
+                        <strong title={d.name}>{d.name}</strong>
+                        {d.server && <span className="role-tag role-service">serveur</span>}
+                      </div>
+                      {d.offline && <div className="muted small">hors ligne</div>}
                     </td>
                     <td className={`num ${d.critical ? "text-bad" : ""}`}>{d.critical}</td>
                     <td className="num">{d.high}</td>

@@ -38,7 +38,7 @@ async function copy(text: string): Promise<void> {
 }
 
 /** Journal brut d'un événement déplié : copie et analyse par l'IA (si configurée, rôle analyste). */
-function EventRaw({ event }: { event: EventRow }) {
+export function EventRaw({ event }: { event: EventRow }) {
   const user = useUser();
   const [ai, setAi] = useState(false);
   const [analyse, setAnalyse] = useState(false);

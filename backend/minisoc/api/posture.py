@@ -1,20 +1,24 @@
-"""Score de risque par entité et exposition réelle (que corriger en premier)."""
+"""Score de risque par entité, exposition réelle (que corriger en premier) et recherche par CVE."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from minisoc import cve as cve_search
 from minisoc.api.deps import ANY_USER, get_db
 from minisoc.assets import INDEX, key_for
+from minisoc.connectors import cyberwatch
 from minisoc.connectors.ninjaone import POSTURE_KEY
 from minisoc.exposure import load_postures, ranking
 from minisoc.models import OPEN_STATUSES, Alert, Asset, User
 from minisoc.risk import RISK_WINDOW, compute_risk
 from minisoc.settings_store import store as settings_store
+from minisoc.threat_feeds import CERTFR_KEY, KEV_KEY
 
 router = APIRouter(prefix="/api", tags=["posture"])
 
@@ -66,7 +70,87 @@ async def exposure(
     _: User = Depends(ANY_USER),
 ):
     """Machines à corriger en premier : vulnérabilités, antivirus, menaces, failles KEV, exposition, criticité."""
-    postures = load_postures(await request.app.state.redis.hgetall(POSTURE_KEY))
+    redis = request.app.state.redis
+    postures = load_postures(await redis.hgetall(POSTURE_KEY))
+    cyber = cyberwatch.load_states(await redis.hgetall(cyberwatch.STATE_KEY))
     assets = list((await db.scalars(select(Asset).where(Asset.kind == "host"))).all())
     alerts = list((await db.scalars(select(Alert).where(Alert.status.in_(OPEN_STATUSES)))).all())
-    return {"items": ranking(postures, assets, alerts, limit), "ninjaone": bool(postures)}
+    return {
+        "items": ranking(postures, assets, alerts, limit, cyber),
+        "ninjaone": bool(postures),
+        "cyberwatch": bool(cyber),
+    }
+
+
+@router.get("/cve")
+async def cve_fleet(
+    request: Request,
+    kev_only: bool = False,
+    limit: int = Query(100, ge=1, le=500),
+    _: User = Depends(ANY_USER),
+):
+    """CVE présentes sur le parc (dernier relevé Cyberwatch), les failles activement exploitées d'abord."""
+    redis = request.app.state.redis
+    states = cyberwatch.load_states(await redis.hgetall(cyberwatch.STATE_KEY))
+    kev = set(await redis.hkeys(KEV_KEY))
+    rows = cve_search.fleet(states, kev, limit=100000)
+    total = len(rows)
+    if kev_only:
+        rows = [r for r in rows if r["kev"]]
+    at = await redis.get(cyberwatch.STATE_AT_KEY)
+    return {"items": rows[:limit], "total": total, "assets": len(states), "at": float(at) if at else None}
+
+
+@router.get("/cve/{code}")
+async def cve_detail(
+    code: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(ANY_USER),
+):
+    """Une CVE : machines touchées (Cyberwatch), veille (KEV, CERT-FR), détections et alertes qui la citent."""
+    try:
+        code = cve_search.normalize(code)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    state = request.app.state
+    cfg = await settings_store.load(db)
+    states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
+    lookup = await cve_search.cyberwatch_lookup(cfg, states, code)
+    by_id = {s.get("id"): s for s in states.values()}
+    for machine in lookup["machines"]:  # type et adresse connus par le relevé
+        known = by_id.get(machine["asset_id"])
+        if known:
+            machine["server"] = bool(known.get("server"))
+            machine["ip"] = machine["ip"] or known.get("ip", "")
+    index = await INDEX.ensure(db)
+    machines = cve_search.merge_inventory(lookup.pop("machines"), index)
+    certfr = [
+        {k: item.get(k) for k in ("kind", "title", "link", "date")}
+        for item in json.loads(await state.redis.get(CERTFR_KEY) or "[]")
+        if code in (item.get("cves") or [])
+    ]
+    alerts = (
+        await db.scalars(
+            select(Alert)
+            .where(or_(Alert.title.ilike(f"%{code}%"), cast(Alert.details, Text).ilike(f"%{code}%")))
+            .order_by(Alert.last_seen.desc())
+            .limit(50)
+        )
+    ).all()
+    return {
+        "cve": code,
+        "kev": cve_search.kev_entry(await state.redis.hget(KEV_KEY, code)),
+        "certfr": certfr,
+        "cyberwatch": lookup,
+        "machines": machines,
+        "counts": {s: sum(1 for m in machines if m["status"] == s) for s in ("vulnerable", "ignored", "fixed")},
+        "detections": await cve_search.detections(state.store, code),
+        "alerts": [
+            {"id": a.id, "title": a.title, "status": a.status, "severity": a.severity, "rule_id": a.rule_id,
+             "last_seen": a.last_seen.isoformat() if a.last_seen else None}
+            for a in alerts
+        ],
+        "ninjaone": {"available": False,
+                     "reason": "L'API NinjaOne ne donne pas les CVE par poste (seulement des nombres par gravité)."},
+    }

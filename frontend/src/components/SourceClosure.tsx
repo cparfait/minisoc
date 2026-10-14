@@ -3,7 +3,7 @@ import { formatDate } from "../labels";
 import type { SourceClosure } from "../types";
 
 /** Outils dont le statut est synchronisé : une alerte traitée dans l'outil est clôturée dans le Mini-SOC. */
-export const SYNCED_TOOLS = new Set(["harfanglab", "ninjaone"]);
+export const SYNCED_TOOLS = new Set(["harfanglab", "ninjaone", "cyberwatch", "varonis", "bitdefender"]);
 
 /** Trace de la clôture constatée dans l'outil d'origine. */
 export function SourceClosureNote({ closure }: { closure: SourceClosure }) {

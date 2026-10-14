@@ -14,6 +14,8 @@ from minisoc.api.deps import ANY_USER, get_db
 from minisoc.ecs import SEVERITY_NAMES, severity_name
 from minisoc.frameworks import coverage, describe
 from minisoc.models import OPEN_STATUSES, Alert, User
+from minisoc.resolver import annotate
+from minisoc.settings_store import store as settings_store
 from minisoc.stats import auth_activity
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -105,8 +107,10 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db), _: User
         .limit(8)
     )
 
+    cfg_dns = str((await settings_store.load(db)).get("dns_server") or "")
     try:
         ch = await auth_activity(state.store, top=10)
+        await annotate(ch["top_attackers"], cfg_dns)
         ch["events_by_module"] = await state.store.query(
             "SELECT module, count() AS count FROM events WHERE ts >= now64(3) - INTERVAL 24 HOUR "
             "GROUP BY module ORDER BY count DESC"
@@ -123,6 +127,27 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db), _: User
         **ch,
         "sources": await sources_status(state),
     }
+
+
+@router.get("/stats/vpn")
+async def vpn_stats(
+    request: Request,
+    recent: int = Query(12, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(ANY_USER),
+):
+    """Accès distants (VPN, portail VPN, administration du pare-feu) sur 24 h, pour le tableau de bord."""
+    from minisoc.settings_store import store as settings_store
+    from minisoc.stats import vpn_activity
+
+    cfg = await settings_store.load(db)
+    try:
+        result = await vpn_activity(request.app.state.store, recent=recent,
+                                    home_countries=cfg.get("home_countries") or ["FR"])
+        await annotate(result["recent"], str(cfg.get("dns_server") or ""))
+        return result
+    except Exception:  # noqa: BLE001 - le tableau de bord reste utilisable sans ClickHouse
+        return {"summary": {}, "services": [], "targeted": [], "recent": [], "clickhouse_error": True}
 
 
 async def count_open_by_severity(db: AsyncSession) -> dict[str, int]:
@@ -192,6 +217,30 @@ async def ninjaone_posture(request: Request, _: User = Depends(ANY_USER)):
 
     raw = await request.app.state.redis.get(SUMMARY_KEY)
     return json.loads(raw) if raw else {"devices": 0, "exposed": [], "at": None}
+
+
+@router.get("/cyberwatch/summary")
+async def cyberwatch_summary(request: Request, _: User = Depends(ANY_USER)):
+    """Synthèse des vulnérabilités (dernier relevé Cyberwatch) : actifs les plus exposés."""
+    import json
+
+    from minisoc.connectors.cyberwatch import SUMMARY_KEY
+
+    raw = await request.app.state.redis.get(SUMMARY_KEY)
+    return json.loads(raw) if raw else {"assets": 0, "exposed": [], "at": None}
+
+
+@router.get("/cyberwatch/hosts")
+async def cyberwatch_hosts(
+    request: Request,
+    names: str = Query("", max_length=10000, description="machines séparées par des virgules"),
+    _: User = Depends(ANY_USER),
+):
+    """Correctifs en attente par machine, d'après le dernier relevé Cyberwatch : quoi mettre à jour, et pourquoi."""
+    from minisoc.connectors import cyberwatch
+
+    states = cyberwatch.load_states(await request.app.state.redis.hgetall(cyberwatch.STATE_KEY))
+    return {"hosts": cyberwatch.hosts_patches(states, [n for n in names.split(",") if n.strip()][:200])}
 
 
 async def threat_feeds_summary(redis, kev_limit: int = 40) -> dict:

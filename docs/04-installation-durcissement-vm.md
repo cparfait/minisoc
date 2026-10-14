@@ -83,7 +83,9 @@ cp deploy/iso/vm.conf.example deploy/iso/vm.conf     # facultatif : réseau, NTP
 docker run --rm -v "${PWD}:/work" -w /work debian:13-slim sh deploy/iso/build-iso.sh
 ```
 
-Résultat : `build/iso/minisoc-debian-13.x-amd64-auto.iso` (et son empreinte `.sha256`). Une valeur laissée vide
+Résultat : `build/iso/minisoc-debian-13.x-amd64-auto-<date>-<heure>-<commit>.iso` (et son empreinte `.sha256`),
+suffixé `-modifie` si des changements n'étaient pas commités ; les ISO précédentes de
+`build/iso/` sont effacées une fois la nouvelle prête. Une valeur laissée vide
 dans `vm.conf` (IP, masque, passerelle, DNS, domaine, mot de passe d'`adminsoc`) est demandée pendant
 l'installation. Des clés SSH publiques peuvent être placées dans `deploy/iso/authorized_keys` (une par ligne) ;
 sinon `sudo minisoc-setup` les demande ensuite.
@@ -102,9 +104,12 @@ ses serveurs de temps.
    **démarrage sécurisé** cochés. Lecteur CD : l'ISO, « connecter à la mise sous tension ».
 3. Démarrer, ouvrir la console, valider l'entrée « Mini-SOC : installation automatique » avec **Entrée** (le menu
    attend volontairement : une VM qui redémarrerait sur le CD ne se réinstalle pas seule). Répondre aux
-   questions éventuelles (réseau, mot de passe).
+   questions éventuelles (réseau, mot de passe) : le clavier est déjà en **AZERTY**, pendant l'installation
+   comme ensuite sur la console de la VM (chiffres de l'adresse IP : Maj ou pavé numérique).
 4. La VM redémarre et termine seule (15 à 30 minutes, journal sur la console et dans
-   `/var/log/minisoc-firstboot.log`) :
+   `/var/log/minisoc-firstboot.log`). Elle vérifie d'abord que les serveurs Internet listés ci-dessous sont
+   joignables : sinon elle **se met en pause**, affiche ceux à autoriser sur le XGS (nom et port) et réessaie
+   chaque minute (`sudo touch /run/minisoc-firstboot-sans-controle` pour passer outre). Ensuite :
    - disque de données formaté et monté sur `/var/lib/docker` ;
    - Docker (§ 5) et durcissement (§ 4) ;
    - Mini-SOC installé dans `/opt/minisoc`, `.env` créé, certificats syslog TLS générés, application construite
@@ -113,15 +118,18 @@ ses serveurs de temps.
    - sauvegardes chiffrées planifiées (§ 8).
 5. Se connecter (console ou `ssh adminsoc@<IP>`) et lancer **`sudo minisoc-setup`** : console de paramétrage en
    menus (postes DSI, écran mural, sources syslog, AD, SMTP, XGS, CrowdSec, ports SaaS, serveur de sauvegarde,
-   clés SSH, certificat web, compte de secours, jeton de l'écran mural, fichiers à déployer, état de la VM).
+   clés et port SSH, certificat web, compte de secours, jeton de l'écran mural, fichiers à déployer, état de la VM).
    « Appliquer » arme un **retour arrière automatique** de 3 minutes : sans confirmation depuis une nouvelle
    session, l'ancienne configuration du pare-feu et de SSH est rétablie.
 6. Retirer l'ISO du lecteur CD de la VM, puis faire un instantané « installation terminée ».
 
 Accès Internet nécessaires pendant l'installation (en 80 et 443) : `deb.debian.org`, `security.debian.org`,
-`download.docker.com`, `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com`, `ghcr.io`,
+`download.docker.com`, `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com`,
+`production.cloudfront.docker.com`, `ghcr.io`,
 `registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`. Sans accès direct, renseigner `HTTP_PROXY` dans
-`vm.conf`.
+`vm.conf`. Si le réseau coupe CloudFront (`connection reset by peer` sur `production.cloudfront.docker.com`),
+renseigner `DOCKER_MIRROR='https://mirror.gcr.io'` (miroir officiel de Docker Hub chez Google) et autoriser
+`mirror.gcr.io`.
 
 Restent manuels : la clé maître et la phrase de passe des sauvegardes à copier dans le coffre-fort (§ 7.1, § 8),
 le certificat racine à déployer par GPO (§ 7.2), les agents HarfangLab/NinjaOne (§ 9), les règles du XGS (§ 6.4).
@@ -405,10 +413,9 @@ LAN_IF="ens192"                         # interface réseau de la VM (VMXNET3 so
 # --- Entrant ---
 ADMINS="192.168.10.21 192.168.10.22"    # postes DSI : SSH et interface web
 WALL="192.168.10.40"                    # écran mural : interface web
-SYSLOG_TCP="192.168.10.1"               # syslog 514/TCP en clair : XGS, Vectra, Varonis
+SYSLOG_TCP="192.168.10.1"               # syslog 514/TCP en clair : XGS, Vectra (Varonis seulement s'il est installé sur site)
 SYSLOG_TLS="192.168.10.2 192.168.10.3"  # syslog 6514/TCP chiffré : contrôleurs de domaine, serveurs de fichiers
 SYSLOG_UDP=""                           # seulement pour un équipement qui ne sait pas envoyer en TCP
-BITDEFENDER_PROXY=""                    # reverse proxy en DMZ, seulement si Bitdefender est raccordé
 BACKUP_SERVER="192.168.10.60"           # serveur qui récupère les sauvegardes (SSH, compte restreint)
 
 # --- Sortant (hôte:port) ---
@@ -416,7 +423,7 @@ DNS="192.168.10.2 192.168.10.3"
 NTP="192.168.10.2 192.168.10.3"
 LAN_OUT="192.168.10.2:636 192.168.10.3:636 192.168.10.8:587 192.168.10.1:4444 192.168.10.9:8080"
 #        LDAPS (AD)        LDAPS (AD)        relais SMTP       API du XGS         CrowdSec
-# Ollama interne éventuel : ajouter 192.168.10.30:11434
+# Ollama interne éventuel : ajouter 192.168.10.30:11434 ; Cyberwatch sur le LAN : ajouter son adresse:443
 INTERNET_PORTS="443,8443"               # Internet : HarfangLab (8443), Microsoft 365, mises à jour, veille, IA…
 ```
 
@@ -472,9 +479,10 @@ par nom de domaine se fait sur le XGS, par lequel passe toute la sortie Internet
 
 1. **Hôtes et services › FQDN** : créer le groupe « Mini-SOC - destinations ». Les domaines sont listés dans
    [03-preparation-vm.md § 2](03-preparation-vm.md) : console HarfangLab, `login.microsoftonline.com`,
-   `manage.office.com`, `updates.maxmind.com`, `www.cisa.gov`, `www.cert.ssi.gouv.fr`, fournisseur d'IA, Teams,
+   `manage.office.com`, `download.maxmind.com`, `www.cisa.gov`, `www.cert.ssi.gouv.fr`, fournisseur d'IA, Teams,
    ntfy. Ajoutez-y aussi les sources de mise à jour : `deb.debian.org`, `security.debian.org`,
    `download.docker.com`, `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com`,
+   `production.cloudfront.docker.com`,
    `ghcr.io`, `pkg-containers.githubusercontent.com`.
 2. Règle n° 1 : source = IP de la VM, destination = groupe « Mini-SOC - destinations », services HTTPS et
    TCP 8443 → **Accepter**, journalisation activée.
@@ -516,8 +524,7 @@ Dans `.env` :
 | `MINISOC_PUBLIC_URL` | `https://minisoc.mairie.local` |
 | `WEB_BIND` | `192.168.10.50` (IP de la VM, pas `0.0.0.0`) |
 | `SYSLOG_BIND` | `192.168.10.50` |
-| `MINISOC_BITDEFENDER_ALLOWED_IPS` | IP du reverse proxy DMZ, si Bitdefender est raccordé |
-| `COMPOSE_PROFILES` | `syslog-tls` (et `geoip` si MaxMind est utilisé : `geoip,syslog-tls`) |
+| `COMPOSE_PROFILES` | `syslog-tls` (GeoIP se règle dans l'interface : Intégrations › Géolocalisation) |
 
 > **Clé maître** (`MINISOC_MASTER_KEY`) : elle chiffre tous les jetons saisis dans l'interface. Copiez-la dès
 > maintenant dans le coffre-fort de mots de passe de la DSI (KeePass), hors de la VM. Sans elle, une restauration
@@ -539,6 +546,41 @@ Deux possibilités, de la meilleure à la plus simple :
    niveau (`minisoc.mairie.fr`, avec un enregistrement DNS interne). Sa clé vaut pour tout le domaine : une
    compromission de la VM permettrait d'usurper n'importe quel sous-domaine. Un certificat dédié au seul nom du
    Mini-SOC reste préférable.
+
+   **Pas à pas, sans la console** (mêmes contrôles que `sudo minisoc-setup` › Certificat web). Déposer le
+   fichier depuis un poste DSI (`scp wildcard.pfx adminsoc@<IP>:/tmp/`), puis sur la VM :
+
+   ```bash
+   sudo -i                                   # tout en root : la clé ne doit être lisible que par root
+   umask 077; d=$(mktemp -d); cd "$d"
+   # a) PFX/P12 → PEM (mot de passe du PFX demandé ; ajouter -legacy si « unsupported » sur un ancien PFX)
+   openssl pkcs12 -in /tmp/wildcard.pfx -nokeys -out crt
+   openssl pkcs12 -in /tmp/wildcard.pfx -nocerts -nodes -out key
+   awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' crt > chain
+   #    Fichiers PEM à la place : cp certificat.crt chain ; cp cle.key key
+   #    (.cer binaire : openssl x509 -inform der -in x.cer -out chain ; clé chiffrée : openssl pkey -in x.key -out key)
+   # b) Contrôles : les deux empreintes doivent être identiques, le nom couvert, la chaîne présente (2 ou plus)
+   openssl x509 -in chain -noout -pubkey | sha256sum; openssl pkey -in key -pubout | sha256sum
+   openssl x509 -in chain -noout -checkhost minisoc.mairie.local    # « does match » attendu
+   openssl x509 -in chain -noout -subject -ext subjectAltName -enddate
+   grep -c 'BEGIN CERTIFICATE' chain
+   # c) Installation
+   install -d -m 0700 /etc/minisoc/tls
+   install -m 0600 chain /etc/minisoc/tls/minisoc.crt
+   install -m 0600 key /etc/minisoc/tls/minisoc.key
+   cd /opt/minisoc
+   grep -q '^MINISOC_TLS_DIR=' .env && sed -i 's|^MINISOC_TLS_DIR=.*|MINISOC_TLS_DIR=/etc/minisoc/tls|' .env || echo 'MINISOC_TLS_DIR=/etc/minisoc/tls' >> .env
+   grep -q '^MINISOC_TLS=' .env && sed -i 's|^MINISOC_TLS=.*|MINISOC_TLS=/certs/minisoc.crt /certs/minisoc.key|' .env || echo 'MINISOC_TLS=/certs/minisoc.crt /certs/minisoc.key' >> .env
+   docker compose up -d web
+   # d) Ménage : rien de la clé ne doit rester hors de /etc/minisoc/tls
+   shred -u "$d"/key "$d"/crt /tmp/wildcard.pfx; rm -rf "$d"; exit
+   ```
+
+   Si le certificat couvre un autre nom que celui de l'interface (`MINISOC_HOSTNAME` de `.env`), changer aussi
+   `MINISOC_HOSTNAME` et `MINISOC_PUBLIC_URL` dans `.env` et créer l'enregistrement DNS correspondant. Vérifier
+   depuis un poste DSI : le navigateur n'affiche plus d'avertissement, ou
+   `openssl s_client -connect minisoc.mairie.local:443 -servername minisoc.mairie.local </dev/null | openssl x509 -noout -issuer -enddate`.
+   Renouvellement : même procédure avec le nouveau fichier.
 2. **Autorité interne de Caddy** (`tls internal`, par défaut) : après le premier démarrage, récupérer son
    certificat racine (`sudo docker compose cp web:/data/caddy/pki/authorities/local/root.crt .`) et le
    déployer par **GPO** sur les postes DSI et l'écran mural (Autorités de certification racines de confiance).
@@ -633,6 +675,9 @@ Sur le serveur de sauvegarde (`192.168.10.60`), chaque nuit à 3 h, récupérer 
 rsync -a minisoc-backup@192.168.10.50:/ /sauvegardes/minisoc/
 ```
 
+Si le port SSH a été changé (`sudo minisoc-setup`, menu « Port SSH »), l'indiquer à rsync :
+`rsync -a -e 'ssh -p 2222' minisoc-backup@192.168.10.50:/ /sauvegardes/minisoc/`.
+
 Le serveur de sauvegarde gère lui-même la conservation des archives (par exemple 90 jours).
 
 En plus :
@@ -661,8 +706,37 @@ En plus :
 | --- | --- | --- |
 | Correctifs de sécurité Debian | automatique, chaque nuit | `unattended-upgrades` ; redémarrer si `needrestart` le demande |
 | Docker | mensuel | instantané de la VM, puis `sudo apt update && sudo apt upgrade` |
-| Mini-SOC et images | à chaque version | instantané, nouvelle archive dans `/opt/minisoc` (garder `.env` et `docker-compose.override.yml`), puis `sudo docker compose pull && sudo docker compose up -d --build` |
+| Mini-SOC et images | à chaque version | instantané de la VM, puis paquet de mise à jour (ci-dessous) |
 | Audit de durcissement | trimestriel | `sudo lynis audit system` : traiter les avertissements ; viser un indice ≥ 75 |
+
+**Mise à jour du Mini-SOC.** Chaque construction (`deploy/iso/build-iso.sh`) produit, à côté de l'ISO, un paquet
+`build/iso/minisoc-update-<version>.tar.gz` (mêmes fichiers, sans les réglages du site). Depuis un poste DSI :
+
+```bash
+scp build/iso/minisoc-update-<version>.tar.gz adminsoc@<IP>:/tmp/
+```
+
+Puis sur la VM, après un instantané :
+
+```bash
+sudo minisoc-update /tmp/minisoc-update-<version>.tar.gz
+```
+
+La commande affiche la version installée et la nouvelle, demande confirmation, sauvegarde l'existant
+(`/var/backups/minisoc/mises-a-jour/`, 3 dernières gardées), met à jour l'application dans `/opt/minisoc` (`.env`,
+`docker-compose.override.yml` et `data/` conservés ; fichiers retirés de l'application supprimés), les scripts du
+système (console de paramétrage, pare-feu, SSH, accueil), puis reconstruit et redémarre les conteneurs. Si la
+construction échoue, tout est remis dans l'état précédent sans interrompre les conteneurs en service. Journal :
+`/var/log/minisoc-update.log`. Version installée : `/etc/minisoc/version` (affichée à la connexion).
+
+VM installée avant l'arrivée de cette commande (première fois seulement) :
+
+```bash
+tar -xzf /tmp/minisoc-update-<version>.tar.gz -C /tmp && sudo bash /tmp/minisoc-update/minisoc-update.sh /tmp/minisoc-update-<version>.tar.gz
+```
+
+Changement de comportement géré à la mise à jour : les intégrations sont désormais désactivées par défaut ; sur une
+installation existante, celles qui fonctionnaient (données reçues, veille, GeoIP) restent actives.
 
 ---
 

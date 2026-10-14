@@ -1,0 +1,17 @@
+id: UC-49
+name: Nouvelles vulnérabilités prioritaires (Cyberwatch)
+type: match
+severity: from_event
+description: >
+  Cyberwatch classe de nouvelles vulnérabilités d'un serveur comme prioritaires (gravité, exploitabilité, exposition
+  et contexte de l'actif). Les postes n'en produisent pas (des centaines par poste, une vague à chaque mise à jour
+  mensuelle) : ils restent dans la synthèse de la page Veille.
+filter:
+  event.module: cyberwatch
+  event.action: prioritized_vulnerabilities
+group_by: [host.name]
+title: "{message}"
+dedup_window: 7d
+storm_limit: 10
+mitre: [T1190]
+playbook: playbooks/cyberwatch-vulnerabilities.md

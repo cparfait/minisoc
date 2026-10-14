@@ -72,24 +72,10 @@ services:
     <<: *backend
     command: ["python", "-m", "minisoc.worker"]
     volumes:
-      # Bases GeoIP (MaxMind GeoLite2 ou DB-IP Lite, .mmdb) : facultatives, relues à chaud
-      - ./data/geoip:/app/data/geoip:ro
+      # Bases GeoIP (MaxMind GeoLite2) : téléchargées et mises à jour par le worker (Intégrations › Géolocalisation)
+      - geoip:/app/data/geoip
       # La liste remplace celle du modèle commun : le volume des archives est donc repris ici
       - archives:/var/lib/minisoc/archives
-
-  # Mise à jour automatique des bases GeoLite2 (MaxMind) : activée avec COMPOSE_PROFILES=geoip dans .env
-  geoipupdate:
-    image: ghcr.io/maxmind/geoipupdate:latest
-    profiles: [geoip]
-    restart: unless-stopped
-    environment:
-      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
-      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
-      GEOIPUPDATE_EDITION_IDS: "GeoLite2-City GeoLite2-ASN"
-      GEOIPUPDATE_FREQUENCY: "72"  # heures ; la licence impose d'utiliser des bases à jour
-    volumes:
-      - ./data/geoip:/usr/share/GeoIP
-    networks: [backend]
 
   # Réception syslog des équipements (Sophos, Vectra, Varonis…) avec tampon disque, relayée à l'API
   vector:
@@ -135,6 +121,8 @@ services:
     environment:
       MINISOC_HOSTNAME: ${MINISOC_HOSTNAME:-localhost}
       MINISOC_TLS: ${MINISOC_TLS:-internal}
+      # Adresse IP de l'interface : https://<IP> renvoie vers MINISOC_HOSTNAME
+      MINISOC_IP: ${WEB_BIND:-127.0.0.1}
     ports:
       - "${WEB_BIND:-0.0.0.0}:443:443"
       - "${WEB_BIND:-0.0.0.0}:80:80"
@@ -153,6 +141,7 @@ volumes:
   vectortlsdata:
   caddydata:
   archives:
+  geoip:
 
 networks:
   backend:

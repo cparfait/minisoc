@@ -19,8 +19,8 @@ l'accès à l'administration (UC-10), de l'IPS et des vulnérabilités exploité
 | Port | 514 |
 | Protocole | TCP |
 | Fonction (Facility) | DAEMON |
-| Niveau (Severity) | Information |
-| Format | Format standard de l'appareil (Device standard format) |
+| Niveau (Severity) | **Information** (le niveau minimal envoyé : « Emergency » n'enverrait presque rien) |
+| Format | **Standard syslog protocol** (recommandé par Sophos ; l'ancien « Device standard format » reste lu) |
 
 3. Enregistrer, puis dans le tableau des journaux, cocher pour le serveur **Mini-SOC** :
    - **Authentification** : VPN SSL, VPN IPsec, portail utilisateur, authentification de l'administration ;
@@ -44,5 +44,6 @@ l'accès à l'administration (UC-10), de l'IPS et des vulnérabilités exploité
 ## Dépannage
 - **Rien n'arrive** : depuis le pare-feu, *Diagnostics › Outils › Ping* vers {{MINISOC_HOST}} ; vérifier qu'aucun
   pare-feu intermédiaire ne bloque le 514/TCP ; `docker compose logs vector` sur le Mini-SOC.
-- **Événements « Syslog générique » au lieu de « Sophos XGS »** : le format n'est pas « standard de l'appareil ».
+- **Événements « Syslog générique » au lieu de « Sophos XGS »** : format autre que « Standard syslog protocol » ou
+  « Device standard format » (par exemple CEF).
 - **Trop de volume** : décocher les journaux de trafic du pare-feu.

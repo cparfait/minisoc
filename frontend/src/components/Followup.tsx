@@ -52,7 +52,7 @@ export function ToolStateLine({ alert }: { alert: Alert }) {
   );
 }
 
-const SYNCED = new Set(["harfanglab", "ninjaone"]);
+const SYNCED = new Set(["harfanglab", "ninjaone", "cyberwatch", "varonis", "bitdefender"]);
 const CALCULATED = new Set(["UC-42", "UC-43", "UC-44", "UC-45"]);
 
 /** Marche à suivre pour agir dans l'outil d'origine : le Mini-SOC ne modifie pas les outils. */
@@ -70,6 +70,12 @@ const STEPS: Record<string, string[]> = {
     "Réinitialiser l'alerte (Reset) dans NinjaOne ; pour un problème de posture, le relevé suivant constate la résolution.",
     "Le Mini-SOC clôture automatiquement son alerte, en gardant la trace.",
   ],
+  cyberwatch: [
+    "Ouvrir l'actif dans Cyberwatch (bouton ci-dessous) : CVE concernées, correctif disponible, redémarrage requis.",
+    "Corriger : appliquer le correctif (ou la mise à jour Windows via NinjaOne), puis redémarrer si demandé ; système en fin de support : planifier la mise à niveau.",
+    "Correction impossible à court terme : mesure de contournement (filtrage, désactivation du service) ; risque accepté : ignorer la CVE dans Cyberwatch avec un commentaire.",
+    "Le Mini-SOC clôture automatiquement son alerte au relevé suivant (30 min au plus) quand les CVE ne sont plus présentes, en gardant la trace.",
+  ],
   sophos_xgs: [
     "Ouvrir la console du Sophos XGS : Journaux et rapports › Visionneuse de journaux (filtrer sur l'adresse IP ou le compte).",
     "Pour bloquer une adresse : ajouter l'IP au groupe d'hôtes de blocage (règle de pare-feu et exception d'accès au VPN), avec une date de fin.",
@@ -79,7 +85,13 @@ const STEPS: Record<string, string[]> = {
   bitdefender: [
     "Ouvrir la console GravityZone (bouton ci-dessous) : Incidents ou Rapports, filtrer sur la machine.",
     "Lancer une analyse complète, isoler le poste si la menace n'est pas neutralisée.",
-    "Clôturer ici une fois traité (pas de synchronisation de statut avec GravityZone).",
+    "Incident : le passer « En cours » puis « Clôturé » (ou « Faux positif ») dans GravityZone ; le Mini-SOC clôture son alerte automatiquement, en gardant la trace.",
+    "Fichier mis en quarantaine : menace déjà neutralisée ; vérifier l'origine (téléchargement, courriel) puis clôturer ici.",
+  ],
+  varonis: [
+    "Ouvrir l'alerte dans Varonis (bouton ci-dessous) : compte, données touchées, événements détaillés.",
+    "Activité illégitime : désactiver le compte ou réinitialiser son mot de passe, retirer les droits ajoutés ; rançongiciel : isoler le poste source (EDR) en urgence.",
+    "Fermer l'alerte dans Varonis avec le motif adapté (« Authorized activity » si légitime) ; le Mini-SOC clôture son alerte automatiquement, en gardant la trace.",
   ],
   windows: [
     "Vérifier l'action dans l'annuaire (Utilisateurs et ordinateurs Active Directory, ou journaux du contrôleur).",

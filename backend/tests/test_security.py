@@ -58,3 +58,23 @@ def test_wall_masks_user_names():
     assert mask_name("j.dupont") == "j.d*****"
     assert mask_name("rh") == "r**"
     assert "dupont" not in mask_name("j.dupont")
+
+
+def test_preference_keys_are_limited():
+    from minisoc.api.auth import PREFERENCE_KEYS, PREFERENCE_MAX
+
+    assert PREFERENCE_KEYS == {"dashboard", "wall"} and PREFERENCE_MAX <= 50_000
+
+
+def test_wall_settings_validation():
+    import pytest
+
+    from minisoc.settings_store import SettingsError, validate
+
+    validate("wall_pages", ["alertes", "vuln"])
+    with pytest.raises(SettingsError):
+        validate("wall_pages", ["vpn"])  # « alertes » obligatoire
+    with pytest.raises(SettingsError):
+        validate("wall_pages", ["alertes", "météo"])
+    with pytest.raises(SettingsError):
+        validate("wall_rotation", 9999)

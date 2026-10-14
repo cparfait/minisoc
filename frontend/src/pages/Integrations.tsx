@@ -1,5 +1,6 @@
 import { Plug } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useUser } from "../App";
 import AiProviders from "../components/AiProviders";
@@ -37,6 +38,8 @@ interface Item {
   detail: string;
   dropped: number;
   silence_minutes: number;
+  modules: string[];
+  status_kind: string;
 }
 
 const STATE: Record<State, { label: string; cls: string }> = {
@@ -147,7 +150,17 @@ export default function Integrations() {
           <span className={`state-pill ${STATE[i.state].cls}`}>{STATE[i.state].label}</span>
         </header>
         <p className="store-desc">{i.description}</p>
-        {step.text && <p className={`store-step ${step.tone}`}>{step.text}</p>}
+        {step.text && (
+          <p className={`store-step ${step.tone}`}>
+            {step.text}
+            {i.modules.length > 0 && i.last_seen && (
+              <>
+                {" · "}
+                <Link to={`/events?module=${encodeURIComponent(i.modules[0])}&period=7j`}>Voir les événements reçus</Link>
+              </>
+            )}
+          </p>
+        )}
         {i.dropped > 0 && <p className="muted small">{formatNumber(i.dropped)} événement(s) ignoré(s) pendant la désactivation.</p>}
         {result && result !== "busy" && <p className={`small ${result.ok ? "text-good" : "text-bad"}`}>{result.text}</p>}
         <footer>

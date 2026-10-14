@@ -1,7 +1,7 @@
 # NinjaOne : parc et vulnérabilités (lecture seule)
 
-Le Mini-SOC lit NinjaOne avec le même accès que l'assistant chatIA (sesame-ia) : application « machine à machine »
-en portée **Surveillance** (lecture seule, aucune action possible sur les postes).
+Le Mini-SOC lit NinjaOne avec une application « machine à machine » en portée **Surveillance** (lecture seule,
+aucune action possible sur les postes).
 
 Ce qui est remonté :
 - **alertes actives** de NinjaOne (toutes les 2 minutes) : disque plein, service arrêté, agent hors ligne… ;
@@ -22,10 +22,10 @@ Ce qui est remonté :
 
 ## Étapes
 1. NinjaOne › **Administration › Applications › API** › **Ajouter une application client**.
-2. Type **Services API (de machine à machine)** ; nom « Mini-SOC » ; champ d'applications **Surveillance**
-   uniquement ; autorisation **Identifiants du client**. Enregistrer.
+2. Type **Services API (de machine à machine)** ; nom « Mini-SOC » ; redirection des URI `https://localhost`
+   (champ obligatoire, inutilisé ici) ; champ d'applications **Surveillance** uniquement (ni Gestion, ni Contrôle) ;
+   types d'autorisation : **Identifiants du client** uniquement (décocher « Code d'autorisation »). Enregistrer.
 3. Copier l'**identifiant client** et le **secret client** (affiché une seule fois).
-   L'application déjà créée pour chatIA convient aussi, si vous préférez ne pas en créer une seconde.
 4. Dans cette fenêtre (onglet Configuration) : instance (Europe), identifiant client, secret. **Enregistrer**, puis
    **Tester** : le test lit une page de l'inventaire et compte les alertes actives.
 

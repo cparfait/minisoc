@@ -1,0 +1,16 @@
+id: UC-50
+name: Système d'exploitation en fin de support
+type: match
+severity: from_event
+description: >
+  D'après Cyberwatch, le système d'exploitation d'un actif n'est plus maintenu par son éditeur : plus aucun correctif
+  de sécurité ne sera publié. Prévoir sa mise à niveau ou son isolement.
+filter:
+  event.module: cyberwatch
+  event.action: os_end_of_life
+group_by: [host.name]
+title: "{message}"
+dedup_window: 30d
+storm_limit: 10
+mitre: [T1190]
+playbook: playbooks/cyberwatch-vulnerabilities.md

@@ -1,9 +1,10 @@
 """Requêtes DNS des contrôleurs de domaine (serveur DNS Windows), reçues par NXLog.
 
 Deux formats :
-- événements ETW du fournisseur « Microsoft-Windows-DNSServer » (EventID 256 : requête reçue) en JSON ;
-- lignes du journal de débogage DNS (dns.log) : « … PACKET … UDP Rcv 192.168.10.21 1a2b Q [0001 D NOERROR] A
-  (3)www(7)exemple(2)fr(0) ».
+- lignes du journal de débogage DNS (dns.log), lues par NXLog Community Edition (configuration fournie) :
+  « … PACKET … UDP Rcv 192.168.10.21 1a2b Q [0001 D NOERROR] A (3)www(7)exemple(2)fr(0) » ;
+- événements ETW du fournisseur « Microsoft-Windows-DNSServer » (EventID 256 : requête reçue) en JSON, pour un agent
+  capable de lire l'ETW (le module im_etw n'existe que dans l'édition payante de NXLog).
 
 Seules les requêtes reçues des clients sont gardées (pas les réponses). Le domaine enregistré (« exemple.fr » pour
 « www.exemple.fr ») et un indice de nom généré par algorithme (DGA, typique des logiciels malveillants qui

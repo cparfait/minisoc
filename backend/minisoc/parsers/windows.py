@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import PureWindowsPath
 
 from minisoc.ecs import Event
-from minisoc.parsers.common import first, parse_ts
+from minisoc.parsers.common import LOCAL_TZ, first, parse_ts
 
 MODULE = "windows"
 
@@ -70,11 +70,19 @@ def _user(value: str) -> str:
     return "" if value == "-" else value
 
 
+def event_time(data: dict, received: datetime) -> datetime:
+    """NXLog Community Edition écrit EventTime en heure locale du serveur, sans fuseau : `EventTimeUTC` (millisecondes
+    depuis l'epoch, ajouté par deploy/nxlog/nxlog.conf) fait foi ; à défaut, EventTime est lu en heure de Paris."""
+    if data.get("EventTimeUTC") not in (None, ""):
+        return parse_ts(data["EventTimeUTC"], received)
+    return parse_ts(first(data, "EventTime", "TimeCreated"), received, naive_tz=LOCAL_TZ)
+
+
 def parse_windows(data: dict, received: datetime, peer: str = "") -> Event:
     event_id = str(data.get("EventID", ""))
     host = first(data, "Hostname", "Computer", default=peer)
     base = dict(
-        ts=parse_ts(first(data, "EventTime", "TimeCreated"), received),
+        ts=event_time(data, received),
         module=MODULE,
         host_name=host,
         observer=host,

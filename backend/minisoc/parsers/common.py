@@ -6,6 +6,7 @@ import copy
 import json
 import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 _KV = re.compile(r'([A-Za-z_][\w.\-]*)=("(?:[^"\\]|\\.)*"|\S*)')
 _PRI = re.compile(r"^<\d{1,3}>")
@@ -26,13 +27,17 @@ def strip_pri(line: str) -> str:
     return _PRI.sub("", line.strip(), count=1)
 
 
-def parse_ts(value: object, default: datetime | None = None) -> datetime:
-    """Convertit une date (ISO 8601, epoch en s ou ms) en datetime UTC ; `default` sinon."""
+LOCAL_TZ = ZoneInfo("Europe/Paris")
+
+
+def parse_ts(value: object, default: datetime | None = None, naive_tz=timezone.utc) -> datetime:
+    """Convertit une date (ISO 8601, epoch en s ou ms) en datetime UTC ; `default` sinon. Une date sans fuseau est
+    lue dans `naive_tz` (UTC par défaut ; heure de Paris pour les agents qui envoient l'heure locale)."""
     fallback = default or datetime.now(timezone.utc)
     if value is None or value == "":
         return fallback
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=naive_tz).astimezone(timezone.utc)
     if isinstance(value, (int, float)) or (isinstance(value, str) and value.isdigit()):
         number = float(value)
         if number > 1e12:  # millisecondes
@@ -44,13 +49,13 @@ def parse_ts(value: object, default: datetime | None = None) -> datetime:
     text = str(value).strip().replace("Z", "+00:00")
     try:
         parsed = datetime.fromisoformat(text)
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=naive_tz).astimezone(timezone.utc)
     except ValueError:
         pass
     for fmt in _TS_FORMATS:
         try:
             parsed = datetime.strptime(text, fmt)
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=naive_tz).astimezone(timezone.utc)
         except ValueError:
             continue
     return fallback

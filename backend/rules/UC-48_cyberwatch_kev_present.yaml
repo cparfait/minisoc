@@ -1,0 +1,18 @@
+id: UC-48
+name: Faille activement exploitée présente sur une machine
+type: match
+severity: from_event
+description: >
+  Cyberwatch détecte sur un actif une vulnérabilité non corrigée du catalogue CISA KEV : elle est exploitée
+  activement par des attaquants. Ce n'est pas une attaque constatée mais une porte ouverte à refermer en priorité
+  (sévérité haute pour un serveur, moyenne pour un poste). Seules les nouveautés sont signalées : l'état des lieux
+  du premier relevé est sur la page Veille et dans la recherche par CVE.
+filter:
+  event.module: cyberwatch
+  event.action: kev_vulnerabilities
+group_by: [host.name]
+title: "{message}"
+dedup_window: 7d
+storm_limit: 10
+mitre: [T1190, T1068]
+playbook: playbooks/cyberwatch-vulnerabilities.md

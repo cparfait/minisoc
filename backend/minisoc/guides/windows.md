@@ -17,7 +17,10 @@ Ce qui est détecté :
 - Le fichier de configuration fourni avec le Mini-SOC : `deploy/nxlog/nxlog.conf`.
 
 ## 1. Installer NXLog (contrôleurs de domaine et serveurs de fichiers)
-1. Télécharger **NXLog Community Edition** (MSI 64 bits) sur nxlog.co et l'installer (service « nxlog »).
+1. Télécharger **NXLog Community Edition** (gratuite, sans limite de serveurs) : nxlog.co › Products › NXLog
+   Community Edition › Download, paquet **Windows x86-64** (`nxlog-ce-3.2.xxxx.msi`). Le lien « No thanks, just
+   start my download » évite de créer un compte. Installer le MSI (service « nxlog »).
+   Ne pas prendre « NXLog Agent » ni « NXLog Platform » : ce sont les produits payants de l'éditeur.
 2. Copier `deploy/nxlog/nxlog.conf` vers `C:\Program Files\nxlog\conf\nxlog.conf`.
 3. Dans ce fichier, remplacer `MINISOC_IP` par **{{MINISOC_HOST}}**.
 4. Redémarrer le service (PowerShell administrateur) :
@@ -28,7 +31,12 @@ Test-NetConnection {{MINISOC_HOST}} -Port 514
 ```
 
 Le fichier ne transmet que les événements utiles : les connexions des comptes machine, les tickets Kerberos AES
-et les lectures de fichiers sont filtrés pour limiter le volume.
+et les lectures de fichiers sont filtrés pour limiter le volume. Il n'utilise que des modules de l'édition gratuite
+et ajoute l'heure exacte en UTC (`EventTimeUTC`) : l'édition gratuite date les événements en heure locale, sans
+fuseau.
+
+> Une configuration NXLog déjà en place sans `EventTimeUTC` reste lue correctement : le Mini-SOC interprète alors
+> l'heure en heure de Paris.
 
 > **Envoi chiffré (TLS, port 6514)** : sur le Mini-SOC, `./scripts/syslog_cert.sh NOM_DNS_DU_MINISOC` puis profil
 > `syslog-tls` (voir le guide Sophos XGS) ; sur chaque serveur, copier `data/syslog-tls/ca.crt` dans

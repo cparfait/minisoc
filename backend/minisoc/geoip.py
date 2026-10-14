@@ -1,6 +1,7 @@
 """Enrichissement géographique des adresses IP publiques à partir de bases MMDB locales (aucun appel externe).
 
-Déposer dans le dossier GeoIP (data/geoip/ sur l'hôte) l'un ou plusieurs de ces fichiers :
+Bases téléchargées par geoip_update.py (Intégrations › Géolocalisation) dans le dossier GeoIP (volume « geoip ») ;
+formats reconnus :
   - GeoLite2-City.mmdb ou GeoLite2-Country.mmdb (pays) et GeoLite2-ASN.mmdb (opérateur) — MaxMind, compte gratuit
   - dbip-country-lite-*.mmdb / dbip-city-lite-*.mmdb et dbip-asn-lite-*.mmdb — DB-IP, licence CC BY 4.0
 Les bases sont relues automatiquement quand elles changent (mise à jour mensuelle conseillée).

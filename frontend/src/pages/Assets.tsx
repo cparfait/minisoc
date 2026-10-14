@@ -1,4 +1,4 @@
-import { Boxes, Check, FileUp, Monitor, Plus, RefreshCw, Server, User as UserIcon } from "lucide-react";
+import { Boxes, Check, FileUp, Globe2, Monitor, Plus, RefreshCw, Server, User as UserIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, query } from "../api";
@@ -15,7 +15,12 @@ const CRITICALITY: { value: Criticality; label: string }[] = [
   { value: "normal", label: "Normale" },
   { value: "low", label: "Basse" },
 ];
-const SOURCE_LABEL: Record<string, string> = { manual: "saisie", import: "import", ad: "annuaire", ninjaone: "NinjaOne", alertes: "alertes" };
+// Type d'une machine : « serveur » change l'icône et le libellé partout (une fiche modifiée n'est plus écrasée par les synchronisations)
+const HOST_TYPES = [
+  { value: "poste", label: "poste" },
+  { value: "serveur", label: "serveur" },
+];
+const SOURCE_LABEL: Record<string, string> = { manual: "saisie", import: "import", ad: "annuaire", ninjaone: "NinjaOne", cyberwatch: "Cyberwatch", alertes: "alertes" };
 
 interface Asset {
   id: number;
@@ -29,6 +34,7 @@ interface Asset {
   asset_type: string;
   source: string;
   reviewed: boolean;
+  internet_exposed: boolean;
   updated_at: string | null;
 }
 
@@ -36,7 +42,7 @@ interface AssetList {
   items: Asset[];
   by_criticality: Partial<Record<Criticality, number>>;
   to_review: number;
-  sync: { at: string; ninjaone: number; ad_computers: number; ad_accounts: number; alerts: number; created: number; errors: string[] } | null;
+  sync: { at: string; ninjaone: number; cyberwatch?: number; ad_computers: number; ad_accounts: number; alerts: number; created: number; errors: string[] } | null;
 }
 
 function EditableText({ value, onSave, disabled, placeholder }: { value: string; onSave: (v: string) => void; disabled: boolean; placeholder: string }) {
@@ -121,7 +127,7 @@ export default function Assets() {
       <p className="muted">
         La criticité entre dans la priorité des alertes (vitale +20, haute +10, basse −10) ; le propriétaire et le
         service s'affichent avec les machines touchées. Une fiche modifiée ici est « classée » : les synchronisations
-        (NinjaOne, annuaire, alertes) ne la modifient plus.
+        (NinjaOne, Cyberwatch, annuaire, alertes) ne la modifient plus.
       </p>
       <div className="kpi-row assets-kpis">
         {CRITICALITY.map((c) => (
@@ -138,14 +144,14 @@ export default function Assets() {
       </div>
       {data?.sync && (
         <p className="muted small">
-          Dernière synchronisation {timeAgo(data.sync.at)} : NinjaOne {data.sync.ninjaone}, annuaire {data.sync.ad_computers} machine(s) et{" "}
+          Dernière synchronisation {timeAgo(data.sync.at)} : NinjaOne {data.sync.ninjaone}, Cyberwatch {data.sync.cyberwatch ?? 0}, annuaire {data.sync.ad_computers} machine(s) et{" "}
           {data.sync.ad_accounts} compte(s) sensible(s), alertes {data.sync.alerts} ; {data.sync.created} nouvelle(s) fiche(s).
           {data.sync.errors.length > 0 && <span className="text-bad"> {data.sync.errors.join(" ; ")}</span>}
         </p>
       )}
       {message && <p className={message.ok ? "text-good" : "text-bad"}>{message.text}</p>}
       <ErrorBanner error={error} />
-      <ExposureTop limit={10} />
+      <ExposureTop limit={10} collapsible />
 
       {importing && (
         <Card title="Importer un inventaire (CSV)">
@@ -175,7 +181,7 @@ export default function Assets() {
 
       {data && data.items.length === 0 ? (
         <Empty icon={Boxes}>
-          Aucune fiche. {editable && "« Synchroniser » importe les machines de NinjaOne et de l'annuaire, et celles citées par les alertes."}
+          Aucune fiche. {editable && "« Synchroniser » importe les machines de NinjaOne, de Cyberwatch et de l'annuaire, et celles citées par les alertes."}
         </Empty>
       ) : (
         <div className="table-scroll">
@@ -184,6 +190,7 @@ export default function Assets() {
               <tr>
                 <th>{kind === "host" ? "Machine" : "Compte"}</th>
                 <th>Criticité</th>
+                {kind === "host" && <th title="Service publié sur Internet (site web, messagerie, VPN, accès distant…)">Internet</th>}
                 <th>Propriétaire</th>
                 <th>Service</th>
                 <th>Description</th>
@@ -201,7 +208,15 @@ export default function Assets() {
                       </Link>
                       {a.reviewed && <span title="Classée par la DSI"><Check size={13} className="text-good" /></span>}
                     </span>
-                    {a.asset_type && <div className="muted small">{a.asset_type}</div>}
+                    {a.kind === "host" ? (
+                      <select className="type-select" value={a.asset_type} disabled={!editable} aria-label="Type de machine"
+                        onChange={(e) => update(a, { asset_type: e.target.value })}>
+                        {!HOST_TYPES.some((t) => t.value === a.asset_type) && <option value={a.asset_type}>{a.asset_type || "type ?"}</option>}
+                        {HOST_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    ) : (
+                      a.asset_type && <div className="muted small">{a.asset_type}</div>
+                    )}
                   </td>
                   <td>
                     <select className={`crit-select crit-${a.criticality}`} value={a.criticality} disabled={!editable}
@@ -209,6 +224,20 @@ export default function Assets() {
                       {CRITICALITY.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
                   </td>
+                  {kind === "host" && (
+                    <td>
+                      <button
+                        type="button"
+                        className={`exposed-toggle ${a.internet_exposed ? "on" : ""}`}
+                        disabled={!editable}
+                        aria-pressed={a.internet_exposed}
+                        title={a.internet_exposed ? "Exposée à Internet : cliquer pour retirer" : "Non exposée : cliquer si un service est publié sur Internet"}
+                        onClick={() => update(a, { internet_exposed: !a.internet_exposed })}
+                      >
+                        <Globe2 size={13} /> {a.internet_exposed ? "Exposée" : "Non"}
+                      </button>
+                    </td>
+                  )}
                   <td><EditableText key={`o${a.id}${a.owner}`} value={a.owner} disabled={!editable} placeholder="—" onSave={(v) => update(a, { owner: v })} /></td>
                   <td><EditableText key={`s${a.id}${a.service}`} value={a.service} disabled={!editable} placeholder="—" onSave={(v) => update(a, { service: v })} /></td>
                   <td className="small muted assets-desc" title={a.description}>{a.description || "—"}</td>

@@ -1,4 +1,5 @@
-"""Événements du service Push de Bitdefender GravityZone (méthode JSON-RPC `addEvents`).
+"""Événements Bitdefender GravityZone : service Push (méthode JSON-RPC `addEvents`) ou lecture de l'API publique
+(connectors/gravityzone.py, mêmes formats « new-incident » et « av », champ `source` = « api »).
 
 Chaque événement porte un champ `module` (av, hd, avc, ransomware-mitigation, new-incident, fw, aph,
 network-monitor, modules…). Les noms de champs varient selon le module et la version de l'API :
@@ -61,6 +62,23 @@ def parse_bitdefender(event: dict, received: datetime, console_url: str = "") ->
     else:
         action = bd_module.replace("-", "_")
 
+    severity = sev_ok if neutralized or not status else sev_bad
+    score = event.get("severity_score")
+    if bd_module == "new-incident" and isinstance(score, (int, float)):  # score de gravité de l'incident (1 à 100)
+        severity = 4 if score >= 80 else 3 if score >= 50 else 2
+    rule_name = first(event, "malware_type", "attack_type", "incident_type", "detection_name", default=bd_module)
+    threat_name = first(event, "malware_name", "threat_name", "attack_type", "detection_name")
+    if event.get("source") == "api":  # lu par l'API (connectors/gravityzone.py) : nom précis de la détection
+        if bd_module == "new-incident":
+            rule_name = first(event, "detection_name", default="Incident GravityZone")
+            threat_name = first(event, "attack_type", "detection_name")
+            if event.get("organization"):
+                rule_name = "Incident d'organisation (corrélation)"
+                if int(event.get("endpoints") or 0) <= 1:
+                    severity = 1  # double d'un incident de poste déjà remonté : gardé, sans alerte
+        else:
+            rule_name = "Fichier mis en quarantaine"
+
     outcome = ""
     if category == "malware" and status:
         outcome = "success" if neutralized else "failure"  # succès = menace neutralisée
@@ -72,23 +90,35 @@ def parse_bitdefender(event: dict, received: datetime, console_url: str = "") ->
         category=category,
         action=action,
         outcome=outcome,
-        severity=sev_ok if neutralized or not status else sev_bad,
+        severity=severity,
         source_ip=first(event, "source_ip", "attacker_ip", "attack_source", "sourceIp"),
         destination_ip=first(event, "destination_ip", "computer_ip", "endpoint_ip"),
         user_name=first(event, "user.name", "username", "user_name", "computer_user"),
         host_name=first(event, "computer_name", "endpoint_name", "computerName", "hostname"),
         host_ip=first(event, "computer_ip", "endpoint_ip", "computerIp"),
-        rule_name=first(event, "malware_type", "attack_type", "incident_type", "detection_name", default=bd_module),
-        threat_name=first(event, "malware_name", "threat_name", "attack_type", "detection_name"),
+        rule_name=rule_name,
+        threat_name=threat_name,
         file_path=first(event, "file_path", "filePath", "path"),
         observer="GravityZone",
-        reference=console_url,
+        reference=str(event.get("incident_link") or console_url),
         message=_message(bd_module, event, status),
         raw=json.dumps(event, ensure_ascii=False, default=str),
     )
 
 
 def _message(bd_module: str, event: dict, status: str) -> str:
+    if bd_module == "new-incident" and event.get("incident_number"):
+        host = first(event, "computer_name", default="")
+        if event.get("organization"):
+            return (f"GravityZone : incident d'organisation n° {event['incident_number']} ({event.get('endpoints', 0)} "
+                    f"machine(s), {event.get('attack_type') or 'corrélation'}) ; action : {status or 'signalé'}")
+        attacks = f" ({event['attack_type']})" if event.get("attack_type") else ""
+        return (f"GravityZone : {event.get('incident_type', 'incident')} n° {event['incident_number']} "
+                f"{first(event, 'detection_name')}{attacks}{f' sur {host}' if host else ''} ; action : "
+                f"{status or 'signalé'}, score {event.get('severity_score', '?')}/100")
+    if bd_module == "av" and event.get("source") == "api":
+        return (f"GravityZone : {first(event, 'malware_name')} mis en quarantaine sur "
+                f"{first(event, 'computer_name', default='poste inconnu')} ({first(event, 'file_path', default='?')})")
     threat = first(event, "malware_name", "threat_name", "attack_type", "detection_name", default=bd_module)
     host = first(event, "computer_name", "endpoint_name", default="poste inconnu")
     suffix = f" (statut : {status})" if status else ""

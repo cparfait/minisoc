@@ -24,3 +24,8 @@ ADMIN_PASSWORD_HASH=''
 # Plage d'adresses des réseaux Docker internes : à choisir hors de toute plage utilisée sur le réseau (LAN, VLAN,
 # sites distants, VPN), sinon la VM ne peut plus joindre les machines de cette plage. Défaut : 10.255.0.0/16
 DOCKER_POOL='10.255.0.0/16'
+
+# Miroir de Docker Hub, si le réseau coupe CloudFront (production.cloudfront.docker.com, erreurs « connection
+# reset by peer ») : le miroir officiel de Google sert les mêmes images, vérifiées par leur empreinte.
+# Vide : Docker Hub directement.
+DOCKER_MIRROR=''             # ex. 'https://mirror.gcr.io'

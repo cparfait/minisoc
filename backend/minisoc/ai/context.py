@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -38,7 +39,7 @@ def wrap(sections: list[str]) -> str:
 
 
 async def alert_context(alert: Alert, rules: RuleSet, store: EventStore, db: AsyncSession,
-                        pseudo: Pseudonymizer, playbook: str) -> str:
+                        pseudo: Pseudonymizer, playbook: str, cyber: dict[str, dict] | None = None) -> str:
     p = pseudo
     rule = rules.by_id.get(alert.rule_id)
     details = alert.details or {}
@@ -80,18 +81,22 @@ async def alert_context(alert: Alert, rules: RuleSet, store: EventStore, db: Asy
 
     events = await store.by_ids(alert.event_ids, limit=MAX_EVENTS)
     ev_lines = [f"# Événements liés ({len(events)} sur {len(alert.event_ids)} conservés)",
-                "date | source | catégorie | résultat | motif | service | IP source | compte | poste | message"]
+                "date | source | catégorie | résultat | motif | service | IP source | compte | poste | fichier | "
+                "message"]
     for e in events:
         ev_lines.append(" | ".join([
             _date(e.get("ts")), e.get("module", ""), e.get("category", ""), e.get("outcome", "") or "-",
             e.get("reason", "") or "-", e.get("network_service", "") or "-", p.ip(e.get("source_ip", "")) or "-",
             p.user(e.get("user_name", "")) or "-", p.host(e.get("host_name", "")) or "-",
+            _clean(p.text(e.get("file_path", "")), 200) or "-",
             _clean(p.text(e.get("message", "")), MAX_MESSAGE),
         ]))
 
     history = await _entity_history(alert, store, p)
     related = await _related_alerts(alert, db, p)
     sections = ["\n".join(lines), "\n".join(ev_lines), history, related]
+    if cyber:
+        sections.append(_patches_section(cyber, p))
     if playbook:
         sections.append("# Fiche réflexe interne associée à la règle\n" + playbook[:3000])
     return wrap(sections)
@@ -100,7 +105,8 @@ async def alert_context(alert: Alert, rules: RuleSet, store: EventStore, db: Asy
 MAX_RAW = 6000
 
 
-async def event_context(event: dict, store: EventStore, db: AsyncSession, pseudo: Pseudonymizer) -> str:
+async def event_context(event: dict, store: EventStore, db: AsyncSession, pseudo: Pseudonymizer,
+                        cyber: dict[str, dict] | None = None) -> str:
     """Un événement (bouton « Analyser avec l'IA » de la liste) : champs normalisés, journal brut borné, activité
     récente du même poste / compte / IP et alertes ouvertes qui le concernent."""
     p = pseudo
@@ -153,7 +159,7 @@ async def event_context(event: dict, store: EventStore, db: AsyncSession, pseudo
                 f"- n° {a.id} · {a.rule_id} · {severity_name(a.severity)} · {a.status} · {_clean(p.text(a.title))}"
                 for a in alerts
             )
-    return wrap(["\n".join(lines), raw_section, activity, related])
+    return wrap(["\n".join(lines), raw_section, activity, related, _patches_section(cyber, p) if cyber else ""])
 
 
 async def _entity_history(alert: Alert, store: EventStore, p: Pseudonymizer) -> str:
@@ -191,8 +197,10 @@ async def _related_alerts(alert: Alert, db: AsyncSession, p: Pseudonymizer) -> s
     )
 
 
-async def situation_context(db: AsyncSession, store: EventStore, sources: list[dict], pseudo: Pseudonymizer) -> str:
-    """Vue d'ensemble pour les questions libres : alertes ouvertes, sources, activité d'authentification."""
+async def situation_context(db: AsyncSession, store: EventStore, sources: list[dict], pseudo: Pseudonymizer,
+                            focus: str = "") -> str:
+    """Vue d'ensemble pour les questions libres : alertes ouvertes, sources, activité d'authentification ; `focus` :
+    détail des machines citées dans la question (voir `host_focus`)."""
     p = pseudo
     alerts = (await db.scalars(
         select(Alert).where(Alert.status.in_(OPEN_STATUSES)).order_by(Alert.severity.desc(), Alert.last_seen.desc())
@@ -215,4 +223,74 @@ async def situation_context(db: AsyncSession, store: EventStore, sources: list[d
     auth = ["# IP les plus actives en échec d'authentification (24 h)"] + [
         f"- {p.ip(r['ip'])} : {r['n']} échecs sur {r['users']} compte(s)" for r in top
     ]
-    return wrap(["\n".join(lines), "\n".join(src), "\n".join(auth)])
+    return wrap([focus, "\n".join(lines), "\n".join(src), "\n".join(auth)])
+
+
+def _patches_section(cyber: dict[str, dict], p: Pseudonymizer) -> str:
+    """Correctifs en attente par machine (Cyberwatch) : produit, version installée → version corrigée, CVE corrigées."""
+    lines = ["# État de la machine (Cyberwatch, dernier relevé) : vulnérabilités présentes et correctifs à appliquer",
+             "Ce ne sont pas des alertes : c'est l'inventaire des failles et des mises à jour manquantes.",
+             "machine : produit version installée → version qui corrige (CVE corrigées, dont KEV / prioritaires)"]
+    for name, info in cyber.items():
+        head = f"- {p.host(name)} ({_clean(info.get('os', ''), 60) or 'système inconnu'}"
+        head += ", redémarrage requis)" if info.get("reboot_required") else ")"
+        head += f" : {info.get('cve_count', 0)} CVE dont {info.get('prioritized_count', 0)} prioritaires"
+        if info.get("kev"):
+            head += f", KEV présentes : {', '.join(info['kev'][:8])}"
+        lines.append(head)
+        if not info.get("known"):
+            lines.append("    correctifs : pas encore relevés")
+            continue
+        for patch in info.get("patches") or []:
+            detail = f"{patch['cves']} CVE"
+            if patch.get("kev"):
+                detail += f", KEV {', '.join(patch['kev'][:5])}"
+            if patch.get("prioritized"):
+                detail += f", {patch['prioritized']} prioritaires"
+            if patch.get("max_score") is not None:
+                detail += f", score max {patch['max_score']}"
+            version = f"{patch['from'] or '?'} → {patch['to'] or 'dernière version'}"
+            lines.append(f"    {_clean(patch['product'], 80)} {version} ({detail})")
+        rest = int(info.get("patches_total") or 0) - len(info.get("patches") or [])
+        if rest > 0:
+            lines.append(f"    … et {rest} autre(s) correctif(s)")
+    return "\n".join(lines)
+
+
+MAX_FOCUS_HOSTS = 5
+
+
+def mentioned_hosts(text: str, known: set[str]) -> list[str]:
+    """Machines connues citées dans une question (« que faire sur le PTB-00612 ? »), dans l'ordre d'apparition."""
+    found = []
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}(?:\.[A-Za-z0-9-]+)*", text or ""):
+        key = token.lower().split(".")[0]
+        if key in known and key not in found:
+            found.append(key)
+    return found[:MAX_FOCUS_HOSTS]
+
+
+async def host_focus(db: AsyncSession, names: list[str], cyber: dict[str, dict], pseudo: Pseudonymizer) -> str:
+    """Détail des machines citées : alertes ouvertes qui les concernent (avec fichier et message) et état Cyberwatch."""
+    if not names:
+        return ""
+    p = pseudo
+    lines = []
+    for name in names:
+        alerts = (await db.scalars(
+            select(Alert).where(Alert.status.in_(OPEN_STATUSES), Alert.entity_key.ilike(f"%host.name={name}%"))
+            .order_by(Alert.severity.desc(), Alert.last_seen.desc()).limit(10)
+        )).all()
+        lines.append(f"# Alertes ouvertes sur {p.host(name.upper())} ({len(alerts)})")
+        for a in alerts:
+            sample = (a.details or {}).get("sample") or {}
+            extra = " · ".join(x for x in (
+                _clean(p.text(sample.get("file.path") or ""), 200),
+                _clean(p.text(sample.get("message") or ""), MAX_MESSAGE),
+            ) if x)
+            lines.append(f"- n° {a.id} · {severity_name(a.severity)} · {a.status} · {a.count} occ. · "
+                         f"{_date(a.last_seen)} · {_clean(p.text(a.title))}" + (f" · {extra}" if extra else ""))
+    sections = ["\n".join(lines)]
+    if cyber:
+        sections.append(_patches_section(cyber, p))
+    return "\n\n".join(sections)

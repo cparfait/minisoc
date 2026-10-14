@@ -53,8 +53,8 @@ export function Contributors({ items }: { items: Contributor[] }) {
 }
 
 /** Accueil : machines et comptes les plus à risque (7 jours). */
-export function RiskTop() {
-  const { data } = usePolling(() => api<{ threshold: number; items: EntityRisk[] }>(`/risk${query({ limit: 8 })}`), [], 60000);
+export function RiskTop({ limit = 8 }: { limit?: number }) {
+  const { data } = usePolling(() => api<{ threshold: number; items: EntityRisk[] }>(`/risk${query({ limit })}`), [limit], 60000);
   return (
     <Card title="Machines et comptes les plus à risque (7 jours)" icon={Flame}>
       {!data || data.items.length === 0 ? (

@@ -188,6 +188,10 @@ Code non versionné à ce jour (pas de dépôt git, aucun commit demandé).
 - **DNS des contrôleurs de domaine** : analyseur ETW et journal de débogage, champs `dns.question.name` et
   `dns.question.registered_domain` ; UC-46 tunnel DNS, UC-47 domaine généré par algorithme ; IOC « domaine »
   appliqués aux sous-domaines ; intégration et guide `dns_windows`, section NXLog.
+- **NXLog validé pour l'édition gratuite** (Community Edition 3.2, 07/10) : configuration limitée aux modules
+  gratuits (la collecte DNS par ETW, `im_etw`, est réservée à l'édition payante : remplacée par le journal de débogage
+  DNS) ; heure exacte ajoutée en UTC (`EventTimeUTC`), l'édition gratuite datant en heure locale sans fuseau (sans
+  elle, les événements Windows étaient décalés de 1 à 2 heures) ; requête XPath répartie sur deux sélections.
 - **Exposition réelle** : « à corriger en priorité » (accueil et inventaire), d'après vulnérabilités, antivirus et
   menaces (NinjaOne), alertes de menace, failles KEV citées, exposition à Internet (case de l'inventaire) et
   criticité ; actions conseillées.
@@ -257,6 +261,9 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
 | Incidents : regrouper plusieurs alertes, suivi, chronologie (migration Alembic 0002) | F-24 | ✅ 03/10 |
 | Rapport mensuel : volumes, alertes par sévérité et règle, délais de prise en charge et de clôture, incidents, attaques | F-29 | ✅ 03/10 (page Rapports, Markdown, e-mail le 1er) |
 | Connecteur NinjaOne repris de sesame-ia (alertes, vulnérabilités critiques UC-15, antivirus UC-11, menaces UC-05, postes exposés sur la page Veille) ; pas de croisement KEV possible (l'API ne donne pas les CVE) | UC-11, UC-15 | 🟡 03/10 livré, à raccorder (identifiant et secret de l'application NinjaOne) |
+| Connecteur Cyberwatch en lecture seule (API v3, clé d'API) : CVE par actif croisées avec le catalogue KEV, faille activement exploitée présente (UC-48), vulnérabilités prioritaires des serveurs (UC-49), système en fin de support (UC-50), actifs exposés sur la page Veille, classement « à corriger », inventaire, clôture automatique quand les CVE disparaissent ; corrige aussi la clôture automatique des changements de posture NinjaOne (jamais relus jusque-là) | UC-48 à UC-50 | ✅ 07/10 raccordé (58 actifs) ; premier relevé = état des lieux sans alerte |
+| Connecteurs API en lecture seule pour les outils cloud, le Mini-SOC n'étant jamais joignable depuis Internet : **Varonis SaaS** (alertes des modèles de menace, délai activité → alerte mesuré, tactiques MITRE, clôture des alertes fermées dans Varonis) et **GravityZone** (incidents EDR par `getIncidentsList`, fichiers mis en quarantaine, clôture des incidents traités) ; le service Event Push de GravityZone et sa publication en DMZ sont abandonnés | — | 🟡 07/10 livré, à raccorder (clés d'API) |
+| Recherche par CVE (page Vulnérabilités) : machines touchées d'après Cyberwatch en direct (vulnérables, corrigées avec dates, écartées au triage ; dernier relevé si l'instance est injoignable), fiche KEV, CERT-FR, détections et alertes qui citent la CVE ; liste des CVE présentes sur le parc, KEV d'abord. NinjaOne ne donne pas les CVE par poste | — | ✅ 07/10 |
 | Vectra (quadrants menace/certitude, lien console, UC-19) et Varonis (comptes, rançongiciel → UC-06) : traitement CEF dédié | — | ✅ 03/10 |
 | OGO Security (UC-17) | — | ⏳ attend les possibilités d'export de l'offre (syslog/CEF déjà reçu par la règle NATIVE) |
 | Routage des notifications par sévérité depuis l'interface (grille sévérité × canal, heures et jours ouvrés) | F-31 | ✅ 03/10 |
@@ -273,13 +280,6 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
   [04-installation-durcissement-vm.md](04-installation-durcissement-vm.md) : pare-feu local en liste blanche
   (machine + chaîne DOCKER-USER, script validé sur Debian 12), SSH par clé, Docker durci, syslog TLS,
   règle de sortie Internet par FQDN sur le XGS ; option conseillée : VLAN dédié derrière le XGS.
-- Sauvegarde nocturne chiffrée (`backup.sh` en cron), récupérée par un serveur tiers en lecture seule ; essai de
-  restauration trimestriel.
-- Sonde externe de disponibilité (ex. Uptime Kuma) sur `/api/health/full` (S-12).
-- Comptes : groupe AD des administrateurs et des lecteurs, compte de service LDAPS ; enrôlement MFA de chacun.
-- Notifications réelles (SMTP de la collectivité, canal Teams, ntfy) et plages horaires.
-- Écran mural : créer le jeton d'affichage du poste de diffusion.
-- Réglage des seuils et exceptions après 2 à 4 semaines de journaux réels.
 - ✅ 13/10 : **ISO d'installation automatique Debian 13 pour vSphere/VxRail** (`deploy/iso`, doc 04 § 2 bis) :
   installation sans intervention (UEFI + Secure Boot), disque de données, Docker (plage d'adresses choisie),
   durcissement (§ 4, fail2ban, pwquality, modules bloqués), Mini-SOC construit et démarré, pare-feu actif en mode
@@ -287,6 +287,13 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
   adresses du site, les clés SSH, le certificat web (PKI ou wildcard), le compte de secours. Bases de données sur
   un réseau Docker `internal` (aucune sortie). Testée sous QEMU (UEFI Secure Boot, VMXNET3, 2 disques) ; reste à
   valider sur le VxRail.
+- Sauvegarde nocturne chiffrée (`backup.sh` en cron), récupérée par un serveur tiers en lecture seule ; essai de
+  restauration trimestriel.
+- Sonde externe de disponibilité (ex. Uptime Kuma) sur `/api/health/full` (S-12).
+- Comptes : groupe AD des administrateurs et des lecteurs, compte de service LDAPS ; enrôlement MFA de chacun.
+- Notifications réelles (SMTP de la collectivité, canal Teams, ntfy) et plages horaires.
+- Écran mural : créer le jeton d'affichage du poste de diffusion.
+- Réglage des seuils et exceptions après 2 à 4 semaines de journaux réels.
 
 ## 4. Points d'attention
 

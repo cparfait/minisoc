@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
 import logging
 import time
 from collections import defaultdict, deque
@@ -25,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 import qrcode
 import qrcode.image.svg
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -275,3 +276,33 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
 @router.get("/me")
 async def me(user: User = Depends(current_user)):
     return user_payload(user)
+
+
+PREFERENCE_KEYS = {"dashboard", "wall"}  # préférences d'affichage acceptées
+PREFERENCE_MAX = 20_000  # octets (JSON) par préférence
+
+
+@router.get("/me/preferences/{key}")
+async def get_preference(key: str, user: User = Depends(current_user)):
+    if key not in PREFERENCE_KEYS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Préférence inconnue")
+    return {"key": key, "value": (user.preferences or {}).get(key)}
+
+
+@router.put("/me/preferences/{key}")
+async def put_preference(key: str, body: dict | None = Body(default=None), user: User = Depends(current_user),
+                         db: AsyncSession = Depends(get_db)):
+    """Enregistre (ou efface, corps vide) une préférence d'affichage de l'utilisateur connecté."""
+    if key not in PREFERENCE_KEYS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Préférence inconnue")
+    if body is not None and len(json.dumps(body)) > PREFERENCE_MAX:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Préférence trop volumineuse")
+    account = await db.get(User, user.id)
+    prefs = dict(account.preferences or {})
+    if body:
+        prefs[key] = body
+    else:
+        prefs.pop(key, None)
+    account.preferences = prefs
+    await db.commit()
+    return {"key": key, "value": prefs.get(key)}

@@ -1,6 +1,6 @@
 """Inventaire des actifs (machines et comptes) : criticité, propriétaire, service.
 
-Alimenté par NinjaOne (machines), l'Active Directory (ordinateurs avec leur OU, comptes à privilèges et de
+Alimenté par NinjaOne et Cyberwatch (machines), l'Active Directory (ordinateurs avec leur OU, comptes à privilèges et de
 service) et les alertes (machines sans fiche, « à classer »), complété à la main ou par import CSV. Une fiche
 classée par la DSI (`reviewed`) n'est jamais modifiée par une synchronisation.
 
@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from minisoc.accounts import KEYS as ACCOUNT_KEYS
 from minisoc.accounts import ad_configured
 from minisoc.accounts import normalize as normalize_account
+from minisoc.connectors.cyberwatch import STATE_KEY as CYBERWATCH_KEY
 from minisoc.connectors.ninjaone import POSTURE_KEY
 from minisoc.models import CRITICALITIES, OPEN_STATUSES, Alert, Asset
 
@@ -215,8 +216,16 @@ def parse_csv(text: str) -> list[dict]:
 
 
 async def sync(session: AsyncSession, redis, cfg: dict) -> dict:
-    """NinjaOne, AD (ordinateurs, comptes sensibles), machines citées par les alertes ouvertes."""
-    report = {"ninjaone": 0, "ad_computers": 0, "ad_accounts": 0, "alerts": 0, "created": 0, "errors": []}
+    """NinjaOne, Cyberwatch, AD (ordinateurs, comptes sensibles), machines citées par les alertes ouvertes."""
+    report = {
+        "ninjaone": 0,
+        "cyberwatch": 0,
+        "ad_computers": 0,
+        "ad_accounts": 0,
+        "alerts": 0,
+        "created": 0,
+        "errors": [],
+    }
 
     async def add(kind, name, source, **values):
         _, created = await upsert(session, kind, name, source=source, **values)
@@ -234,6 +243,20 @@ async def sync(session: AsyncSession, redis, cfg: dict) -> dict:
                 criticality="high" if server else None,
             )
             report["ninjaone"] += 1
+    for raw in (await redis.hgetall(CYBERWATCH_KEY)).values():
+        try:
+            state = json.loads(raw)
+        except ValueError:
+            continue
+        if state.get("name") and state.get("category") not in ("docker_image", "network_target_or_website"):
+            await add(
+                "host",
+                state["name"],
+                "cyberwatch",
+                asset_type="serveur" if state.get("server") else "poste",
+                criticality="high" if state.get("server") else None,
+            )
+            report["cyberwatch"] += 1
     if ad_configured(cfg):
         from minisoc.ldap_auth import computers
 

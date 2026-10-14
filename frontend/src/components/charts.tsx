@@ -107,15 +107,16 @@ export function TrendChart({ trend }: { trend: Overview["trend"] }) {
 }
 
 /** Échecs d'authentification par heure sur 24 h : courbe et aire en dégradé. */
-export function HourlyBars({ points }: { points: Overview["auth_failures_hourly"] }) {
+/** Échecs par heure sur 24 h ; `onSelect` (facultatif) : clic sur une heure (début de l'heure) ou sur le total. */
+export function HourlyBars({ points, onSelect }: { points: Overview["auth_failures_hourly"]; onSelect?: (hour: Date | null) => void }) {
   const gradient = useId().replace(/:/g, "");
-  const hours: { label: string; count: number }[] = [];
+  const hours: { label: string; count: number; start: number }[] = [];
   const byHour = new Map(points.map((p) => [new Date(p.hour).getTime(), p.count]));
   const now = new Date();
   now.setMinutes(0, 0, 0);
   for (let i = 23; i >= 0; i--) {
     const t = now.getTime() - i * 3600000;
-    hours.push({ label: `${new Date(t).getHours()}h`, count: byHour.get(t) ?? 0 });
+    hours.push({ label: `${new Date(t).getHours()}h`, count: byHour.get(t) ?? 0, start: t });
   }
   const total = hours.reduce((a, h) => a + h.count, 0);
   const peak = hours.reduce((m, h) => (h.count > m.count ? h : m), hours[0]);
@@ -141,7 +142,11 @@ export function HourlyBars({ points }: { points: Overview["auth_failures_hourly"
 
   return (
     <figure className="chart">
-      <div className="chart-total">
+      <div
+        className={`chart-total ${onSelect && total ? "clickable" : ""}`}
+        onClick={onSelect && total ? () => onSelect(null) : undefined}
+        title={onSelect && total ? "Voir la liste des échecs (24 h)" : undefined}
+      >
         <strong>{formatNumber(total)}</strong>
         <span>{total ? `échecs en 24 h · pic à ${peak.label} (${formatNumber(peak.count)})` : "échec en 24 h"}</span>
       </div>
@@ -158,8 +163,16 @@ export function HourlyBars({ points }: { points: Overview["auth_failures_hourly"
         {hours.map((h, i) => (
           <g key={i}>
             {h.count > 0 && h === peak && <circle cx={x(i)} cy={y(h.count)} r={4} className="point" />}
-            <rect x={x(i) - step / 2} y={PAD.top} width={step} height={plotH} fill="transparent">
-              <title>{`${h.label} : ${formatNumber(h.count)} échecs`}</title>
+            <rect
+              x={x(i) - step / 2}
+              y={PAD.top}
+              width={step}
+              height={plotH}
+              fill="transparent"
+              className={onSelect && h.count ? "hour-hit" : undefined}
+              onClick={onSelect && h.count ? () => onSelect(new Date(h.start)) : undefined}
+            >
+              <title>{`${h.label} : ${formatNumber(h.count)} échecs${onSelect && h.count ? " (cliquer pour la liste)" : ""}`}</title>
             </rect>
             {i % 3 === 0 && (
               <text x={x(i)} y={H - 6} textAnchor="middle" className="tick">

@@ -127,7 +127,7 @@ class M365Connector:
         while True:
             async with self.sessions() as session:
                 cfg = await settings_store.load(session)
-            if configured(cfg) and cfg.get("src_m365_enabled", True):
+            if configured(cfg) and cfg.get("src_m365_enabled", False):
                 try:
                     async with httpx.AsyncClient(timeout=60) as http:
                         count = await self.poll(M365Client(cfg, http), cfg)

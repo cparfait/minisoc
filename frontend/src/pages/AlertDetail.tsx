@@ -12,7 +12,7 @@ import { OverdueBadge, ToolActions, ToolStateLine, WAITING_REASONS, useAssignees
 import { CategoryBadge, PriorityPill, PriorityReasons } from "../components/Priority";
 import { SourceClosureNote } from "../components/SourceClosure";
 import { DerivedDetails } from "../components/Risk";
-import Triage from "../components/Triage";
+import Triage, { ToolTriage } from "../components/Triage";
 import { ImpactedHosts } from "../components/Hosts";
 import IncidentPicker, { IncidentBadge } from "../components/IncidentPicker";
 import IsolationPanel from "../components/IsolationPanel";
@@ -97,6 +97,7 @@ export default function AlertDetail() {
 
       <ImpactedHosts hosts={alert.hosts} events={alert.events} />
       <Triage events={alert.events} />
+      <ToolTriage events={alert.events} />
       <DerivedDetails details={alert.details} />
 
       {qualification && (

@@ -23,8 +23,8 @@ table inet minisoc_host {
     ct state established,related accept
     ct state invalid drop
     icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 10/second accept
-    ip saddr @admins tcp dport 22 ct state new accept
-    ${BACKUP_SERVER:+ip saddr $BACKUP_SERVER tcp dport 22 ct state new accept}
+    ip saddr @admins tcp dport ${SSH_PORT:-22} ct state new accept
+    ${BACKUP_SERVER:+ip saddr $BACKUP_SERVER tcp dport ${SSH_PORT:-22} ct state new accept}
     limit rate 6/minute log prefix "minisoc-hote-refus-entree " level info
   }
   chain output {

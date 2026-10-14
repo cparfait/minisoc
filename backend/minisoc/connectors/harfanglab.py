@@ -91,7 +91,7 @@ class HarfangLabConnector:
 
 
 def configured(cfg: dict) -> bool:
-    return bool(cfg.get("harfanglab_url") and cfg.get("harfanglab_token") and cfg.get("src_harfanglab_enabled", True))
+    return bool(cfg.get("harfanglab_url") and cfg.get("harfanglab_token") and cfg.get("src_harfanglab_enabled", False))
 
 
 def make_client(cfg: dict) -> httpx.AsyncClient:

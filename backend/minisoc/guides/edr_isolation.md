@@ -24,7 +24,7 @@ Garde-fous :
 1. GravityZone › *Mon compte* › **Clés API** › Ajouter : cocher **Incidents API** (isolation) et **Network API**
    (lecture des postes, pour le test).
 2. Dans cette fenêtre : adresse de l'API (celle affichée avec la clé, par défaut
-   `https://cloud.gravityzone.bitdefender.com/api`) et la clé.
+   `https://cloudgz.gravityzone.bitdefender.com/api`) et la clé.
 
 ## Activer et vérifier
 1. **Enregistrer**, puis **Tester** : le test lit la liste des agents (aucune isolation).

@@ -298,3 +298,131 @@ export default function Triage({ events }: { events: EventRow[] }) {
     </Card>
   );
 }
+
+const GZ_ACTION: Record<string, string> = {
+  blocked: "bloqué automatiquement par GravityZone",
+  partially_blocked: "bloqué en partie (certaines entités seulement)",
+  reported: "signalé seulement : aucune action automatique, à investiguer",
+  quarantined: "fichier mis en quarantaine (menace neutralisée)",
+};
+const GZ_STATUS: Record<string, string> = {
+  open: "ouvert",
+  in_progress: "en investigation",
+  closed: "clôturé",
+  false_positive: "faux positif",
+  closed_mdr_reviewed: "clôturé par le SOC MDR",
+};
+
+/** Levée de doute pour les alertes lues par API (GravityZone, Varonis SaaS) : l'essentiel de l'alerte d'origine. */
+export function ToolTriage({ events }: { events: EventRow[] }) {
+  const latest = events
+    .filter((e) => (e.module === "bitdefender" || e.module === "varonis") && e.raw)
+    .map((e) => ({ event: e, raw: parse(e.raw) }))
+    .filter((x): x is { event: EventRow; raw: Raw } => x.raw !== null && (x.raw.source === "api" || x.raw.type === "alert"))
+    .sort((a, b) => b.event.ts.localeCompare(a.event.ts))[0];
+  if (!latest) return null;
+  const r = latest.raw;
+
+  if (latest.event.module === "bitdefender") {
+    const incident = str(r, "module") === "new-incident";
+    const action = str(r, "final_status");
+    const hints: { tone: string; text: string }[] = [];
+    if (action === "reported") hints.push({ tone: "warn", text: "Aucune action automatique : la menace n'a peut-être pas été stoppée, vérifier le poste." });
+    else if (action) hints.push({ tone: "ok", text: `Action de GravityZone : ${GZ_ACTION[action] ?? action}.` });
+    if (str(r, "organization") === "true") hints.push({ tone: "info", text: "Incident d'organisation : corrélation de plusieurs incidents de postes (voir la console)." });
+    return (
+      <Card title="Levée de doute" icon={SearchCheck} className="triage-card">
+        {hints.length > 0 && (
+          <ul className="triage-hints">
+            {hints.map((h) => (
+              <li key={h.text} className={h.tone}>
+                {h.tone === "ok" ? <CircleCheck size={15} /> : h.tone === "warn" ? <CircleAlert size={15} /> : <Info size={15} />}
+                {h.text}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="triage-grid">
+          <section>
+            <h4>{incident ? "Incident GravityZone" : "Quarantaine GravityZone"}</h4>
+            <dl className="triage-dl">
+              {incident && <Row label="Numéro">n° {str(r, "incident_number") || "—"} ({str(r, "incident_type") || "incident"})</Row>}
+              <Row label="Détection">{str(r, "detection_name", "malware_name") || "—"}</Row>
+              {incident && <Row label="Types d'attaque">{str(r, "attack_type") || "—"}</Row>}
+              {incident && (
+                <Row label="Gravité / priorité">
+                  {[str(r, "severity_score") && `score ${str(r, "severity_score")}/100`, str(r, "priority") && `priorité ${str(r, "priority")}`].filter(Boolean).join(" · ") || "—"}
+                </Row>
+              )}
+              {incident && <Row label="Statut dans GravityZone (au relevé)">{GZ_STATUS[str(r, "incident_status")] ?? (str(r, "incident_status") || "—")}</Row>}
+              {str(r, "file_path") && <Row label="Fichier"><Copyable value={str(r, "file_path")} /></Row>}
+              {str(r, "hash") && <Row label="Empreinte SHA-256"><Hash value={str(r, "hash")} /></Row>}
+            </dl>
+          </section>
+          <section>
+            <h4>Où</h4>
+            <dl className="triage-dl">
+              <Row label="Machine">{str(r, "computer_name") || "—"}</Row>
+              <Row label="Adresse IP">{str(r, "computer_ip") || "—"}</Row>
+              <Row label="Détecté le">{formatDate(str(r, "created", "timestamp")) || "—"}</Row>
+              {incident && str(r, "last_updated") && <Row label="Dernière activité">{formatDate(str(r, "last_updated"))}</Row>}
+            </dl>
+          </section>
+        </div>
+      </Card>
+    );
+  }
+
+  const a = (r.alert ?? {}) as Raw;
+  const val = (k: string) => str(a, k);
+  const yes = (k: string) => ["true", "yes", "1"].includes(val(k).toLowerCase());
+  const delay = typeof r.delay_seconds === "number" ? Math.round(r.delay_seconds / 60) : null;
+  const hints: { tone: string; text: string }[] = [];
+  if (yes("Alert.Data.IsSensitive")) hints.push({ tone: "warn", text: "Des données sensibles sont concernées." });
+  if (yes("Alert.Device.IsMaliciousExternalIP")) hints.push({ tone: "warn", text: `Adresse externe connue comme malveillante${val("Alert.Device.ExternalIPThreatTypesName") ? ` (${val("Alert.Device.ExternalIPThreatTypesName")})` : ""}.` });
+  if (yes("Alert.Location.BlacklistedLocation")) hints.push({ tone: "warn", text: "Connexion depuis un pays interdit." });
+  if (delay !== null && delay >= 1) hints.push({ tone: "info", text: `Alerte reçue ${delay >= 60 ? `${Math.floor(delay / 60)} h ${String(delay % 60).padStart(2, "0")}` : `${delay} min`} après l'activité (analyse dans le cloud Varonis).` });
+  return (
+    <Card title="Levée de doute" icon={SearchCheck} className="triage-card">
+      {hints.length > 0 && (
+        <ul className="triage-hints">
+          {hints.map((h) => (
+            <li key={h.text} className={h.tone}>
+              {h.tone === "warn" ? <CircleAlert size={15} /> : <Info size={15} />}
+              {h.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="triage-grid">
+        <section>
+          <h4>Modèle de menace Varonis</h4>
+          <dl className="triage-dl">
+            <Row label="Modèle">{val("Alert.Rule.Name") || "—"}</Row>
+            <Row label="Catégorie">{val("Alert.Rule.Category.Name") || "—"}</Row>
+            <Row label="Sévérité Varonis">{val("Alert.Rule.Severity.Name") || "—"}</Row>
+            <Row label="Tactique MITRE">{val("Alert.MitreTactic.Name") || "—"}</Row>
+            <Row label="Événements">{val("Alert.EventsCount") || "—"}</Row>
+            <Row label="Statut dans Varonis (au relevé)">{val("Alert.Status.Name") || "—"}</Row>
+          </dl>
+        </section>
+        <section>
+          <h4>Qui et où</h4>
+          <dl className="triage-dl">
+            <Row label="Compte">
+              {val("Alert.User.SamAccountName") || val("Alert.User.Name") || "—"}
+              {val("Alert.User.AccountType.Name") && <span className="muted"> · {val("Alert.User.AccountType.Name")}</span>}
+            </Row>
+            <Row label="Machine">{val("Alert.Device.HostName") || "—"}</Row>
+            <Row label="Serveur / plateforme">{[val("Alert.Filer.Name"), val("Alert.Filer.Platform.Name")].filter(Boolean).join(" · ") || "—"}</Row>
+            {val("Alert.Asset.Path") && <Row label="Données"><Copyable value={val("Alert.Asset.Path")} long /></Row>}
+            {val("Alert.Location.CountryName") && <Row label="Pays">{val("Alert.Location.CountryName")}</Row>}
+            <Row label="Activité / réception">
+              {formatDate(val("Alert.TimeUTC") ? `${val("Alert.TimeUTC")}Z` : "")} → {formatDate(val("Alert.IngestTime") ? `${val("Alert.IngestTime")}Z` : "")}
+            </Row>
+          </dl>
+        </section>
+      </div>
+    </Card>
+  );
+}

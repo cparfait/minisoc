@@ -14,18 +14,21 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from minisoc import audit
 from minisoc.ai import catalog
-from minisoc.ai.context import alert_context, event_context, situation_context
+from minisoc.ai.context import alert_context, event_context, host_focus, mentioned_hosts, situation_context
 from minisoc.ai.prompts import SYSTEM
 from minisoc.ai.providers import AIError, StreamResult, configured, is_local, list_models, model, provider, stream_chat
 from minisoc.ai.pseudonymize import Pseudonymizer, StreamRestorer
+from minisoc.api.alerts import impacted_hosts
 from minisoc.api.data import sources_status
 from minisoc.api.deps import ADMIN, ANALYST, ANY_USER, client_ip, get_db
+from minisoc.connectors import cyberwatch
 from minisoc.db import sessionmaker
-from minisoc.models import Alert, User
+from minisoc.models import Alert, Asset, User
 from minisoc.rules.loader import load_playbook
 from minisoc.settings_store import store as settings_store
 
@@ -144,7 +147,10 @@ async def analyze_alert(alert_id: int, body: Conversation, request: Request, db:
     rule = state.rules.by_id.get(alert.rule_id)
     pseudo = Pseudonymizer(enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
     playbook = load_playbook(state.settings.rules_dir, rule) if rule else ""
-    context = await alert_context(alert, state.rules, state.store, db, pseudo, playbook)
+    # Correctifs Cyberwatch des machines concernées : de quoi répondre « quoi mettre à jour » machine par machine
+    states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
+    cyber = cyberwatch.hosts_patches(states, [h["name"] for h in impacted_hosts(alert)][:40], limit=6)
+    context = await alert_context(alert, state.rules, state.store, db, pseudo, playbook, cyber)
     messages = _build_messages(context, "Analyse cette alerte.", body.messages, pseudo)
     return _response(_stream(cfg, messages, pseudo, user, client_ip(request), f"alert:{alert_id}"))
 
@@ -159,7 +165,10 @@ async def analyze_event(event_id: str, body: Conversation, request: Request, db:
     if not events:
         raise HTTPException(404, "Événement introuvable")
     pseudo = Pseudonymizer(enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
-    context = await event_context(events[0], state.store, db, pseudo)
+    states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
+    host = str(events[0].get("host_name") or "")
+    cyber = cyberwatch.hosts_patches(states, [host], limit=6) if host else {}
+    context = await event_context(events[0], state.store, db, pseudo, cyber)
     question = ("Analyse cet événement : que s'est-il passé, est-ce plausiblement légitime ou malveillant, "
                 "quelles vérifications concrètes faire et quelle action recommandes-tu ?")
     messages = _build_messages(context, question, body.messages, pseudo)
@@ -174,7 +183,14 @@ async def chat(body: Conversation, request: Request, db: AsyncSession = Depends(
     cfg = await _ready_cfg(db, user)
     state = request.app.state
     pseudo = Pseudonymizer(enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
-    context = await situation_context(db, state.store, await sources_status(state), pseudo)
+    # Machines citées dans la conversation : leurs alertes ouvertes et leur état Cyberwatch, en tête du contexte
+    states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
+    known = {str(s.get("name") or "").lower().split(".")[0] for s in states.values()}
+    known |= {n.lower().split(".")[0] for n in await db.scalars(select(Asset.name).where(Asset.kind == "host"))}
+    asked = " ".join(t.content for t in body.messages if t.role == "user")
+    names = mentioned_hosts(asked, known)
+    focus = await host_focus(db, names, cyberwatch.hosts_patches(states, names, limit=6), pseudo)
+    context = await situation_context(db, state.store, await sources_status(state), pseudo, focus)
     messages = _build_messages(context, "", body.messages, pseudo)
     return _response(_stream(cfg, messages, pseudo, user, client_ip(request), "chat"))
 

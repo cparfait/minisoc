@@ -70,8 +70,8 @@ banner() {
 }
 section() { printf '\n%s┌─[ %s ]%s\n' "$G" "$*" "$N"; }
 line() { printf '%s│%s %s\n' "$G" "$N" "$*"; }
-ok() { printf '%s│ ✔%s %s\n' "$G" "$N" "$*"; }
-ko() { printf '%s│ ✘%s %s\n' "$R" "$N" "$*"; }
+ok() { printf '%s│ [OK]%s %s\n' "$G" "$N" "$*"; }
+ko() { printf '%s│ [!!]%s %s\n' "$R" "$N" "$*"; }
 end() { printf '%s└──────────────────────────────────────────────────────────%s\n' "$G" "$N"; }
 pause() { read -r -p "${D}  [Entrée] pour revenir au menu${N} " _; }
 
@@ -119,7 +119,7 @@ envset() { if grep -q "^$1=" "$APP/.env"; then sed -i "s|^$1=.*|$1=$2|" "$APP/.e
 # ---------- État courant ----------
 load_state() {
   ADMINS="" WALL="" SYSLOG_TCP="" SYSLOG_TLS="" SYSLOG_UDP="" BACKUP_SERVER="" DNS="" NTP="" LAN_OUT=""
-  INTERNET_PORTS="443,8443" LAN_IF=""
+  INTERNET_PORTS="443,8443" LAN_IF="" SSH_PORT="22"
   DCS="" SMTP="" XGS_API="" CROWDSEC="" OTHER_OUT=""
   . "$FW"
   [ -f "$SETUP" ] && . "$SETUP"
@@ -133,38 +133,38 @@ VM_IP=$(envget WEB_BIND)
 
 # ---------- Sections ----------
 s_inbound() {
-  input ADMINS "Accès entrants ▸ administration" \
+  input ADMINS "Accès entrants > administration" \
     "Postes DSI autorisés à administrer (SSH + interface web).\n2 ou 3 postes, avec réservation DHCP. Adresses ou plages CIDR, séparées par des espaces." addrs 1 || return 0
-  input WALL "Accès entrants ▸ écran mural" "Adresse de l'écran mural (interface web seule). Vide si aucun." addrs || return 0
-  input SYSLOG_TCP "Accès entrants ▸ syslog 514/TCP" \
-    "Sources syslog en clair, 514/TCP :\nSophos XGS, Vectra, Varonis installé sur site." addrs || return 0
-  input SYSLOG_TLS "Accès entrants ▸ syslog 6514/TCP chiffré" \
+  input WALL "Accès entrants > écran mural" "Adresse de l'écran mural (interface web seule). Vide si aucun." addrs || return 0
+  input SYSLOG_TCP "Accès entrants > syslog 514/TCP" \
+    "Sources syslog en clair, 514/TCP :\nfirewall (Sophos XGS ou autre), Vectra, Varonis installé sur site. Vide si aucune." addrs || return 0
+  input SYSLOG_TLS "Accès entrants > syslog 6514/TCP chiffré" \
     "Sources syslog chiffré (TLS), 6514/TCP :\ncontrôleurs de domaine et serveurs de fichiers (NXLog)." addrs || return 0
-  input SYSLOG_UDP "Accès entrants ▸ syslog 514/UDP" \
+  input SYSLOG_UDP "Accès entrants > syslog 514/UDP" \
     "Sources syslog en UDP : seulement pour un équipement qui ne sait pas envoyer en TCP." addrs || return 0
   PENDING=1
 }
 s_outbound() {
-  input DNS "Accès sortants ▸ DNS" "Serveurs DNS de la VM." addrs 1 || return 0
-  input NTP "Accès sortants ▸ heure" "Serveurs de temps (en général les contrôleurs de domaine)." addrs 1 || return 0
-  input DCS "Accès sortants ▸ annuaire" "Contrôleurs de domaine joints en LDAPS (636/TCP)." addrs || return 0
-  input SMTP "Accès sortants ▸ messagerie" "Relais SMTP (adresse:port, ex. 192.168.10.8:587)." hostports || return 0
-  input XGS_API "Accès sortants ▸ Sophos XGS" "Interface d'API du XGS (4444/TCP) : lecture des règles, blocage d'IP." addrs || return 0
-  input CROWDSEC "Accès sortants ▸ CrowdSec" "Serveur CrowdSec (adresse:port, ex. 192.168.10.9:8080)." hostports || return 0
-  input OTHER_OUT "Accès sortants ▸ autres (LAN)" \
-    "Autres destinations du LAN (adresse:port) : Ollama 11434, Cyberwatch 443…" hostports || return 0
-  input INTERNET_PORTS "Accès sortants ▸ SaaS / Internet" \
+  input DNS "Accès sortants > DNS" "Serveurs DNS de la VM." addrs 1 || return 0
+  input NTP "Accès sortants > heure" "Serveurs de temps (en général les contrôleurs de domaine)." addrs 1 || return 0
+  input DCS "Accès sortants > annuaire" "Contrôleurs de domaine joints en LDAPS (636/TCP)." addrs || return 0
+  input SMTP "Accès sortants > messagerie" "Relais SMTP (adresse:port, ex. 192.168.10.8:587)." hostports || return 0
+  input XGS_API "Accès sortants > Sophos XGS" "Interface d'API du XGS (4444/TCP) : lecture des règles, blocage d'IP." addrs || return 0
+  input CROWDSEC "Accès sortants > CrowdSec" "Serveur CrowdSec (adresse:port, ex. 192.168.10.9:8080)." hostports || return 0
+  input OTHER_OUT "Accès sortants > autres (LAN)" \
+    "Autres destinations du LAN (adresse:port) : Ollama 11434, Cyberwatch 443, Brain Vectra 443…" hostports || return 0
+  input INTERNET_PORTS "Accès sortants > SaaS / Internet" \
     "Ports Internet autorisés aux connecteurs SaaS (séparés par des virgules).\n443 : Microsoft 365, Varonis, Bitdefender, IA, veille. 8443 : HarfangLab.\nLe tri par nom de domaine se fait sur le XGS (doc 04 § 6.4)." text 1 || return 0
   INTERNET_PORTS=$(echo "$INTERNET_PORTS" | tr ' ' ',')
   PENDING=1
 }
 s_backup() {
-  input BACKUP_SERVER "Sauvegarde ▸ serveur" \
+  input BACKUP_SERVER "Sauvegarde > serveur" \
     "Serveur qui vient récupérer les sauvegardes chiffrées (rsync, lecture seule).\nVide pour configurer plus tard." addrs || return 0
   if [ -n "$BACKUP_SERVER" ]; then
     local cur="aucune"
     [ -s "$BACKUP_KEYS" ] && cur="$(awk '{print $(NF-1)}' "$BACKUP_KEYS" | cut -c1-24)…"
-    BACKUP_KEY=$(wt --title "Sauvegarde ▸ clé du serveur" --inputbox \
+    BACKUP_KEY=$(wt --title "Sauvegarde > clé du serveur" --inputbox \
       "Clé publique SSH du serveur de sauvegarde (ssh-ed25519 AAAA…).\nClé actuelle : $cur\nVide pour garder l'actuelle." 14 76 "") || return 0
   fi
   PENDING=1
@@ -173,7 +173,7 @@ s_keys() {
   local nb k
   while :; do
     nb=$( [ -s "$KEYS" ] && grep -c . "$KEYS" || echo 0)
-    k=$(wt --title "Clés SSH ▸ adminsoc" --inputbox \
+    k=$(wt --title "Clés SSH > adminsoc" --inputbox \
       "$nb clé(s) enregistrée(s), $(printf '%s' "$NEW_KEYS" | grep -c . || true) en attente.\nColler une clé publique (ssh-ed25519 AAAA… prenom.nom@poste), vide pour terminer.\n\nDès qu'une clé existe, la connexion par mot de passe est désactivée." 16 76 "") || return 0
     [ -n "$k" ] || return 0
     if [[ "$k" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9]+|sk-[a-z0-9@.-]+)\ [A-Za-z0-9+/=]+ ]]; then
@@ -184,6 +184,22 @@ s_keys() {
     fi
   done
 }
+s_ssh_port() {
+  local p used
+  while :; do
+    p=$(wt --title "SSH > port" --inputbox \
+      "Port d'écoute du serveur SSH (22 par défaut).\nUn autre port limite le bruit des scans, sans remplacer le pare-feu ni les clés.\nAprès « Appliquer » : ssh -p <port> adminsoc@$VM_IP" 12 76 "$SSH_PORT") || return 0
+    p=$(norm "$p")
+    if ! [[ "$p" =~ ^[0-9]+$ ]] || [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then msg "SSH > port" "Port invalide : $p (1 à 65535)."; continue; fi
+    case $p in 80|443|514|6514) msg "SSH > port" "Le port $p est réservé au Mini-SOC (web, syslog)."; continue ;; esac
+    used=$(ss -Hltnp "sport = :$p" 2>/dev/null | grep -v '"sshd"' || true)
+    if [ -n "$used" ]; then msg "SSH > port" "Le port $p est déjà utilisé :\n$used"; continue; fi
+    [ "$p" = "$SSH_PORT" ] || PENDING=1
+    SSH_PORT=$p
+    return 0
+  done
+}
+ssh_cmd() { if [ "$SSH_PORT" = 22 ]; then echo "ssh adminsoc@$VM_IP"; else echo "ssh -p $SSH_PORT adminsoc@$VM_IP"; fi; }
 lan_out() { norm "$(with_port "$DCS" 636) $SMTP $(with_port "$XGS_API" 4444) $CROWDSEC $OTHER_OUT"; }
 summary() {  # appelée dans $(…) : ne modifie aucune variable
   cat <<EOF
@@ -199,13 +215,14 @@ SORTANT
   LAN                       : $(lan_out)
   Internet (SaaS)           : ports $INTERNET_PORTS
 SSH
+  Port                      : $SSH_PORT
   Clés adminsoc             : $( [ -s "$KEYS" ] && grep -c . "$KEYS" || echo 0) + $(printf '%s' "$NEW_KEYS" | grep -c . || true) nouvelle(s)
 EOF
 }
 s_apply() {
   if [ -z "$ADMINS" ]; then msg "Appliquer" "Renseigner d'abord les postes DSI (Entrants)."; return 0; fi
   LAN_OUT=$(lan_out)
-  confirm "Appliquer ▸ récapitulatif" "$(summary)\n\nAppliquer ? Retour arrière automatique dans $((CONFIRM_DELAY / 60)) min sans confirmation." || return 0
+  confirm "Appliquer > récapitulatif" "$(summary)\n\nAppliquer ? Retour arrière automatique dans $((CONFIRM_DELAY / 60)) min sans confirmation." || return 0
   for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS"; do if [ -f "$f" ]; then cp -p "$f" "$f.prev"; fi; done
   cat > "$FW" <<EOF
 # Pare-feu du Mini-SOC : adresses autorisées. Écrit par sudo minisoc-setup le $(date '+%d/%m/%Y %H:%M').
@@ -219,6 +236,7 @@ SYSLOG_TCP="$SYSLOG_TCP"
 SYSLOG_TLS="$SYSLOG_TLS"
 SYSLOG_UDP="$SYSLOG_UDP"
 BACKUP_SERVER="$BACKUP_SERVER"
+SSH_PORT="$SSH_PORT"
 
 # --- Sortant (hôte:port) ---
 DNS="$DNS"
@@ -258,17 +276,16 @@ EOF
   if apply_all; then ok "SSH et pare-feu appliqués"; else ko "échec : retour arrière"; /usr/local/sbin/minisoc-setup --rollback; pause; return 0; fi
   line ""
   line "${W}Depuis un poste DSI, ouvrir une NOUVELLE session :${N}"
-  line "   ssh adminsoc@$VM_IP        https://$(envget MINISOC_HOSTNAME)"
+  line "   $(ssh_cmd)        https://$(envget MINISOC_HOSTNAME)"
   end
   local confirmed=""
-  read -r -t "$CONFIRM_DELAY" -p "${Y}  ▶ Tout fonctionne ? Taper OUI pour conserver : ${N}" confirmed || true
+  read -r -t "$CONFIRM_DELAY" -p "${Y}  > Tout fonctionne ? Taper OUI pour conserver : ${N}" confirmed || true
   systemctl stop minisoc-rollback.timer 2>/dev/null || true
   if [ "$confirmed" = "OUI" ]; then
-    printf '%s  ✔ Configuration conservée.%s\n' "$G" "$N"
-    sed -i '/pare-feu en mode initial/d; /aucune clé SSH/d' /etc/motd
+    printf '%s  [OK] Configuration conservée.%s\n' "$G" "$N"
     load_state
   else
-    printf '%s  ✘ Non confirmé : retour à la configuration précédente.%s\n' "$R" "$N"
+    printf '%s  [!!] Non confirmé : retour à la configuration précédente.%s\n' "$R" "$N"
     /usr/local/sbin/minisoc-setup --rollback
     load_state
   fi
@@ -280,12 +297,12 @@ s_cert() {
   current="autorité interne de Caddy"
   [[ "$(envget MINISOC_TLS)" == /certs* ]] && current="certificat importé, expire le $(openssl x509 -in /etc/minisoc/tls/minisoc.crt -noout -enddate | cut -d= -f2)"
   confirm "Certificat web" "Interface : https://$web_name\nActuellement : $current\n\nImporter un certificat (PKI interne, wildcard *.domaine) ?\nDéposer d'abord le fichier sur la VM :\n  scp certificat.pfx adminsoc@$VM_IP:/tmp/" || return 0
-  cert_in=$(wt --title "Certificat web ▸ fichier" --inputbox "Fichier PFX/P12, ou certificat PEM avec sa chaîne :" 10 76 "/tmp/") || return 0
+  cert_in=$(wt --title "Certificat web > fichier" --inputbox "Fichier PFX/P12, ou certificat PEM avec sa chaîne :" 10 76 "/tmp/") || return 0
   [ -f "$cert_in" ] || { msg "Certificat web" "Fichier introuvable : $cert_in"; return 0; }
   tmp=$(mktemp -d)
   case "$cert_in" in
     *.pfx|*.p12|*.PFX|*.P12)
-      pfx_pass=$(wt --title "Certificat web ▸ mot de passe" --passwordbox "Mot de passe du fichier PFX :" 10 76) || { rm -rf "$tmp"; return 0; }
+      pfx_pass=$(wt --title "Certificat web > mot de passe" --passwordbox "Mot de passe du fichier PFX :" 10 76) || { rm -rf "$tmp"; return 0; }
       for legacy in "" "-legacy"; do
         if PFX_PASS=$pfx_pass openssl pkcs12 $legacy -in "$cert_in" -passin env:PFX_PASS -nokeys -out "$tmp/crt" 2>/dev/null \
           && PFX_PASS=$pfx_pass openssl pkcs12 $legacy -in "$cert_in" -passin env:PFX_PASS -nocerts -nodes -out "$tmp/key" 2>/dev/null; then
@@ -295,7 +312,7 @@ s_cert() {
       pfx_pass=""
       ;;
     *)
-      key_in=$(wt --title "Certificat web ▸ clé" --inputbox "Clé privée PEM (non chiffrée) :" 10 76 "/tmp/") || { rm -rf "$tmp"; return 0; }
+      key_in=$(wt --title "Certificat web > clé" --inputbox "Clé privée PEM (non chiffrée) :" 10 76 "/tmp/") || { rm -rf "$tmp"; return 0; }
       cp "$cert_in" "$tmp/crt"
       cp "$key_in" "$tmp/key" 2>/dev/null || true
       ;;
@@ -308,14 +325,14 @@ s_cert() {
     shred -u "$tmp/key"; rm -rf "$tmp"; msg "Certificat web" "La clé privée ne correspond pas au certificat."; return 0
   fi
   local notes="Noms couverts : $(openssl x509 -in "$tmp/chain" -noout -ext subjectAltName | tail -n +2 | tr -d ' ')\nExpire le : $(openssl x509 -in "$tmp/chain" -noout -enddate | cut -d= -f2)"
-  openssl x509 -in "$tmp/chain" -noout -checkend 2592000 >/dev/null || notes+="\n⚠ expire dans moins de 30 jours"
-  [ "$(grep -c 'BEGIN CERTIFICATE' "$tmp/chain")" -gt 1 ] || notes+="\n⚠ pas de certificat intermédiaire (chaîne incomplète)"
+  openssl x509 -in "$tmp/chain" -noout -checkend 2592000 >/dev/null || notes+="\n[!] expire dans moins de 30 jours"
+  [ "$(grep -c 'BEGIN CERTIFICATE' "$tmp/chain")" -gt 1 ] || notes+="\n[!] pas de certificat intermédiaire (chaîne incomplète)"
   while ! openssl x509 -in "$tmp/chain" -noout -checkhost "$web_name" | grep -q 'does match'; do
-    web_name=$(wt --title "Certificat web ▸ nom" --inputbox \
+    web_name=$(wt --title "Certificat web > nom" --inputbox \
       "$notes\n\nLe certificat ne couvre pas $web_name (un wildcard ne couvre qu'un niveau).\nNom de l'interface web couvert par le certificat (enregistrement DNS interne à créer) :" 16 76 "$web_name") \
       || { shred -u "$tmp/key"; rm -rf "$tmp"; return 0; }
   done
-  confirm "Certificat web ▸ installation" "$notes\n\nInstaller pour https://$web_name ?\nLa clé d'un wildcard vaut pour tout le domaine : elle reste lisible par root seul." \
+  confirm "Certificat web > installation" "$notes\n\nInstaller pour https://$web_name ?\nLa clé d'un wildcard vaut pour tout le domaine : elle reste lisible par root seul." \
     || { shred -u "$tmp/key"; rm -rf "$tmp"; return 0; }
   install -d -m 0700 /etc/minisoc/tls
   install -m 0600 "$tmp/chain" /etc/minisoc/tls/minisoc.crt
@@ -362,15 +379,23 @@ s_files() {
   [[ "$(envget MINISOC_TLS)" == /certs* ]] || (cd "$APP" && docker compose cp web:/data/caddy/pki/authorities/local/root.crt "$out/minisoc-web-root.crt") >/dev/null 2>&1 || true
   chown -R adminsoc:adminsoc "$out"
   banner; section "FICHIERS À DÉPLOYER"
-  ok "minisoc-syslog-ca.crt   → serveurs NXLog (vérification du Mini-SOC en 6514)"
-  [ -f "$out/minisoc-web-root.crt" ] && ok "minisoc-web-root.crt    → GPO : autorités de certification racines de confiance"
+  ok "minisoc-syslog-ca.crt   -> serveurs NXLog (vérification du Mini-SOC en 6514)"
+  [ -f "$out/minisoc-web-root.crt" ] && ok "minisoc-web-root.crt    -> GPO : autorités de certification racines de confiance"
   line "Récupération depuis un poste DSI :  ${W}scp -r adminsoc@$VM_IP:a-recuperer .${N}"
   end
   if [ -f "$APP/data/syslog-tls/ca.key" ]; then
-    printf '%s  ⚠ L’autorité du syslog (ca.key) ne sert qu’au renouvellement : la garder dans le coffre-fort, pas sur la VM.%s\n' "$Y" "$N"
+    printf '%s  [!] L’autorité du syslog (ca.key) ne sert qu’au renouvellement : la garder dans le coffre-fort, pas sur la VM.%s\n' "$Y" "$N"
     printf '    sudo cat %s\n' "$APP/data/syslog-tls/ca.key"
     if confirm "Autorité du syslog" "ca.key est-elle copiée dans le coffre-fort de la DSI ?\nOui = l'effacer de la VM."; then
       shred -u "$APP/data/syslog-tls/ca.key"; ok "ca.key effacée"
+    fi
+  fi
+  if [ ! -e /etc/minisoc/coffre-fort.fait ]; then
+    printf '\n%s  [!] Secrets à copier dans le coffre-fort de la DSI (indispensables pour restaurer une sauvegarde) :%s\n' "$Y" "$N"
+    printf '    phrase de passe des sauvegardes : sudo cat /etc/minisoc/backup.pass\n'
+    printf '    clé maître de l’application     : sudo grep MINISOC_MASTER_KEY %s/.env\n' "$APP"
+    if confirm "Coffre-fort" "La phrase de passe des sauvegardes et la clé maître sont-elles copiées dans le coffre-fort de la DSI ?\nOui = ne plus le rappeler à la connexion."; then
+      touch /etc/minisoc/coffre-fort.fait; ok "rappel du coffre-fort retiré"
     fi
   fi
   pause
@@ -380,11 +405,11 @@ s_status() {
   local nb running total banned
   section "ÉTAT DE LA VM"
   line "$HOST  ·  $VM_IP  ·  $(. /etc/os-release; echo "$PRETTY_NAME")  ·  en service depuis $(uptime -p | sed 's/^up //')"
-  if [ "$INITIAL" = 1 ]; then ko "pare-feu en MODE INITIAL (plages privées) → Entrants puis Appliquer"
+  if [ "$INITIAL" = 1 ]; then ko "pare-feu en MODE INITIAL (plages privées) -> Entrants puis Appliquer"
   elif systemctl is-active -q minisoc-firewall; then ok "pare-feu actif : $(echo "$ADMINS" | wc -w) poste(s) d'administration"
   else ko "pare-feu inactif"; fi
   nb=$( [ -s "$KEYS" ] && grep -c . "$KEYS" || echo 0)
-  if [ "$nb" -gt 0 ]; then ok "SSH par clé uniquement ($nb clé(s))"; else ko "SSH par mot de passe (aucune clé)"; fi
+  if [ "$nb" -gt 0 ]; then ok "SSH par clé uniquement ($nb clé(s)), port $SSH_PORT"; else ko "SSH par mot de passe (aucune clé), port $SSH_PORT"; fi
   banned=$(fail2ban-client status sshd 2>/dev/null | awk -F: '/Currently banned/ {gsub(/[[:space:]]/,"",$2); print $2}' || true)
   ok "fail2ban : ${banned:-0} adresse(s) bannie(s)"
   aa-status --enabled 2>/dev/null && ok "AppArmor actif" || ko "AppArmor inactif"
@@ -406,24 +431,25 @@ load_state
 banner
 printf '%s  Initialisation de la console…%s\n' "$D" "$N"
 sleep 1
-if [ "$INITIAL" = 1 ] && confirm "Bienvenue" "Première configuration : le pare-feu est en mode initial (toutes les plages privées sont acceptées).\n\nLancer l'assistant complet ?\n  accès entrants → accès sortants → sauvegarde → clés SSH → appliquer"; then
-  s_inbound; s_outbound; s_backup; s_keys; s_apply
+if [ "$INITIAL" = 1 ] && confirm "Bienvenue" "Première configuration : le pare-feu est en mode initial (toutes les plages privées sont acceptées).\n\nLancer l'assistant complet ?\n  accès entrants -> accès sortants -> sauvegarde -> clés et port SSH -> appliquer"; then
+  s_inbound; s_outbound; s_backup; s_keys; s_ssh_port; s_apply
 fi
 while :; do
-  flag=""; [ "$PENDING" = 1 ] && flag="  ● modifications non appliquées"
-  choice=$(wt --title "[ MINI-SOC ]" --cancel-button "Quitter" --menu "Hôte $HOST · $VM_IP$flag\nUne lettre ou les flèches, puis Entrée." 22 78 11 \
+  flag=""; [ "$PENDING" = 1 ] && flag="  * modifications non appliquées"
+  choice=$(wt --title "[ MINI-SOC ]" --cancel-button "Quitter" --menu "Hôte $HOST · $VM_IP$flag\nUne lettre ou les flèches, puis Entrée." 23 78 12 \
     "E" "Entrants          postes DSI, écran mural, sources syslog" \
     "S" "Sortants          DNS, NTP, AD, SMTP, XGS, CrowdSec, SaaS" \
     "B" "Sauvegarde        serveur de récupération et sa clé" \
     "K" "Clés SSH          administrateurs (coupe le mot de passe)" \
-    "A" "▶ APPLIQUER       pare-feu + SSH, retour arrière auto" \
+    "P" "Port SSH          actuellement $SSH_PORT" \
+    "A" "> APPLIQUER       pare-feu + SSH, retour arrière auto" \
     "C" "Certificat web    PKI interne ou wildcard" \
     "U" "Comptes           secours, jeton de l'écran mural" \
-    "F" "Fichiers          autorités à déployer, ca.key" \
+    "F" "Fichiers          autorités à déployer, secrets du coffre-fort" \
     "T" "Tableau de bord   état de la VM, conteneurs, sauvegardes" \
     "Q" "Quitter") || choice=Q
   case $choice in
-    E) s_inbound ;; S) s_outbound ;; B) s_backup ;; K) s_keys ;; A) s_apply ;;
+    E) s_inbound ;; S) s_outbound ;; B) s_backup ;; K) s_keys ;; P) s_ssh_port ;; A) s_apply ;;
     C) s_cert ;; U) s_accounts ;; F) s_files ;; T) s_status ;;
     Q)
       if [ "$PENDING" = 1 ] && confirm "Quitter" "Des modifications ne sont pas appliquées. Les appliquer maintenant ?"; then

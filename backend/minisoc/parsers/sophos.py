@@ -1,7 +1,11 @@
 """Journaux syslog du Sophos Firewall (SFOS / XGS), format clé=valeur.
 
-Le format exact varie selon la version de SFOS (noms de champs, libellés de composants) :
-l'analyse est volontairement tolérante et le message brut est toujours conservé.
+Deux formats, tous deux reconnus :
+- « Standard syslog protocol » (ex-« Central Reporting Format », recommandé par Sophos) : timestamp ISO 8601 avec
+  fuseau, `severity`, `client_used` (client d'authentification), `malware` (ATP), `src_country` en code à 3 lettres ;
+- « Device standard format (legacy) », bientôt abandonné par Sophos : `date`/`time` en heure locale, `priority`,
+  `auth_client`, `threatname`.
+Les noms de champs varient aussi selon la version de SFOS : l'analyse est tolérante et le message brut est gardé.
 """
 
 from __future__ import annotations
@@ -62,9 +66,11 @@ def parse_sophos(text: str, received: datetime, peer: str = "") -> Event:
     descr = f"{log_type} {component} {subtype}".lower()
 
     category, kind, severity = _classify(descr, kv)
+    if category != "authentication" and _admin_login(subtype, kv):
+        category = "authentication"  # connexion à l'administration (GUI, SSH, CLI) : log_subtype « Admin »
     service = ""
     if category == "authentication":
-        hint = f"{component} {kv.get('auth_client', '')}".lower()
+        hint = f"{component} {first(kv, 'client_used', 'auth_client')}".lower()
         service = next((svc for pattern, svc in _SERVICES if pattern in hint), "other")
 
     outcome = _outcome(status) or _outcome(subtype) or _outcome(kv.get("fw_rule_action", ""))
@@ -87,12 +93,24 @@ def parse_sophos(text: str, received: datetime, peer: str = "") -> Event:
         user_name=first(kv, "user_name", "username", "user"),
         host_name=first(kv, "src_host", "hostname"),
         network_service=service,
-        rule_name=first(kv, "signature_msg", "threatname", "fw_rule_name", "fw_rule_id"),
-        threat_name=first(kv, "threatname", "virus", "signature_msg"),
+        rule_name=first(kv, "signature_msg", "threatname", "malware", "fw_rule_name", "fw_rule_id"),
+        threat_name=first(kv, "threatname", "malware", "virus", "signature_msg"),
         observer=first(kv, "device_name", "device_id", default=peer),
         message=first(kv, "message", "reason", default=f"{log_type} {component} {subtype} {status}".strip()),
         raw=text,
     )
+
+
+_LOGIN = ("login", "log in", "logged in", "logged out", "authenticat")
+
+
+def _admin_login(subtype: str, kv: dict[str, str]) -> bool:
+    """Connexion (ou échec) à la console d'administration : sous-type « Admin » et message de connexion. Les autres
+    événements « Admin » (modifications de configuration) restent de la configuration."""
+    if subtype.lower() != "admin":
+        return False
+    text = f"{kv.get('message', '')} {kv.get('reason', '')}".lower()
+    return any(word in text for word in _LOGIN)
 
 
 def _classify(descr: str, kv: dict[str, str]) -> tuple[str, str, int]:
@@ -123,6 +141,7 @@ _REASONS = (
                       "invalid user")),
     ("password_expired", ("expired", "must change", "change password")),
     ("account_locked", ("locked", "lockout")),
+    ("outside_hours", ("access time", "time policy")),  # hors de la plage horaire autorisée par le pare-feu
     ("account_disabled", ("disabled", "inactive", "not allowed", "not authorized")),
     ("mfa_failed", ("otp", "token", "mfa", "two-factor")),
     ("invalid_credentials", ("wrong credentials", "invalid credentials", "wrong password", "incorrect password",

@@ -3,7 +3,7 @@ import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   Ban, ExternalLink, FileChartColumn, FilterX, LayoutDashboard, ListChecks, LogOut, MonitorPlay, Moon, Plug, Radar,
   ScrollText, Settings as SettingsIcon, ShieldAlert, Siren, Sparkles, Sun, UserCog, Users as UsersIcon,
-  type LucideIcon, Boxes, Crosshair, Search as SearchIcon,
+  type LucideIcon, Boxes, Bug, Crosshair, PanelLeftClose, PanelLeftOpen, Search as SearchIcon,
 } from "lucide-react";
 import { api } from "./api";
 import { applyTheme, storedTheme, type Theme } from "./theme";
@@ -22,6 +22,7 @@ import Users from "./pages/Users";
 import Assistant from "./pages/Assistant";
 import Blocks from "./pages/Blocks";
 import Veille from "./pages/Veille";
+import Vulnerabilities from "./pages/Vulnerabilities";
 import Accounts from "./pages/Accounts";
 import Incidents from "./pages/Incidents";
 import Reports from "./pages/Reports";
@@ -53,6 +54,7 @@ const NAV_GROUPS: { title: string; items: NavItem[]; role?: "edit" | "admin" }[]
       { to: "/search", label: "Recherche", icon: SearchIcon },
       { to: "/assets", label: "Inventaire", icon: Boxes },
       { to: "/accounts", label: "Comptes AD", icon: UserCog },
+      { to: "/cve", label: "Vulnérabilités", icon: Bug },
       { to: "/veille", label: "Veille", icon: Radar },
       { to: "/reports", label: "Rapports", icon: FileChartColumn },
     ],
@@ -105,9 +107,9 @@ function useNavCounts() {
 function NavEntry({ item, count }: { item: NavItem; count?: number }) {
   const Icon = item.icon;
   return (
-    <NavLink to={item.to} end={item.end} className={({ isActive }) => (isActive ? "active" : "")}>
+    <NavLink to={item.to} end={item.end} className={({ isActive }) => (isActive ? "active" : "")} title={item.label}>
       <Icon size={18} strokeWidth={1.9} />
-      <span>{item.label}</span>
+      <span className="nav-label">{item.label}</span>
       {count ? <span className="nav-badge">{count > 99 ? "99+" : count}</span> : null}
     </NavLink>
   );
@@ -156,6 +158,12 @@ function Shell({ user, setUser, theme, setTheme }: {
   setTheme: (t: Theme) => void;
 }) {
   const counts = useNavCounts();
+  // Menu rétractable (icônes seules), mémorisé sur ce poste
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("minisoc.sidebar.collapsed") === "1");
+  const toggleSidebar = () => {
+    localStorage.setItem("minisoc.sidebar.collapsed", collapsed ? "0" : "1");
+    setCollapsed(!collapsed);
+  };
 
   const toggleTheme = () => {
     const next: Theme = theme === "dark" ? "light" : "dark";
@@ -170,15 +178,25 @@ function Shell({ user, setUser, theme, setTheme }: {
 
   return (
     <UserContext.Provider value={user}>
-      <div className="layout">
+      <div className={`layout ${collapsed ? "sidebar-collapsed" : ""}`}>
         <aside className="sidebar">
           <div className="brand">
             <img src="/favicon.svg" alt="" width={34} height={34} />
-            <div>
+            <div className="brand-text">
               Mini-SOC
               <small>Supervision de la sécurité</small>
             </div>
           </div>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={toggleSidebar}
+            title={collapsed ? "Déplier le menu" : "Replier le menu"}
+            aria-label={collapsed ? "Déplier le menu" : "Replier le menu"}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
           <nav>
             {NAV_GROUPS.map((group) => (
               <div key={group.title} className="nav-group">
@@ -199,9 +217,9 @@ function Shell({ user, setUser, theme, setTheme }: {
                 ))}
               </div>
             )}
-            <a href={WALL_LINK} target="_blank" rel="noopener noreferrer">
+            <a href={WALL_LINK} target="_blank" rel="noopener noreferrer" title="Écran mural">
               <MonitorPlay size={18} strokeWidth={1.9} />
-              <span>Écran mural</span>
+              <span className="nav-label">Écran mural</span>
               <ExternalLink size={14} className="nav-external" />
             </a>
           </nav>
@@ -242,6 +260,8 @@ function Shell({ user, setUser, theme, setTheme }: {
             <Route path="/exceptions" element={<Exceptions />} />
             <Route path="/blocks" element={<Blocks />} />
             <Route path="/veille" element={<Veille />} />
+            <Route path="/cve" element={<Vulnerabilities />} />
+            <Route path="/cve/:code" element={<Vulnerabilities />} />
             {canEdit(user) && <Route path="/assistant" element={<Assistant />} />}
             {user.role === "admin" && <Route path="/users" element={<Users />} />}
             {user.role === "admin" && <Route path="/settings" element={<Settings />} />}

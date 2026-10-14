@@ -9,7 +9,7 @@ from minisoc.response import isolation
 from minisoc.response.isolation import IsolationError, Target, isolate, targets_from_events
 
 CFG = {"isolation_enabled": True, "harfanglab_url": "https://hl.example:8443", "harfanglab_isolation_token": "iso",
-       "bitdefender_api_url": "https://cloud.gravityzone.bitdefender.com/api", "bitdefender_api_key": "bdkey"}
+       "bitdefender_api_url": "https://cloudgz.gravityzone.bitdefender.com/api", "bitdefender_api_key": "bdkey"}
 
 
 def test_targets_come_from_edr_raw_logs_only():

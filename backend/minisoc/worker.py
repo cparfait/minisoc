@@ -21,9 +21,14 @@ from minisoc.accounts import SYNC_SECONDS, SensitiveAccounts, ad_configured, syn
 from minisoc.alerts import SYSTEM, Detection, ExceptionCache, upsert_alert
 from minisoc.config import Settings, get_settings
 from minisoc.connectors.crowdsec import CrowdSecConnector, ThreatIntel
+from minisoc.connectors.cyberwatch import CyberwatchConnector
+from minisoc.connectors.gravityzone import GravityZoneConnector
 from minisoc.connectors.harfanglab import HarfangLabConnector
 from minisoc.connectors.m365 import M365Connector
 from minisoc.connectors.ninjaone import NinjaOneConnector
+from minisoc.connectors.varonis import VaronisConnector
+from minisoc.connectors.vectra import VectraConnector
+from minisoc.geoip_update import GeoIPUpdater
 from minisoc.db import init_db, sessionmaker
 from minisoc.decoys import Decoys
 from minisoc.detections import ProfileCache, entity_parts, recalibrate
@@ -152,7 +157,7 @@ class Worker:
             if not ev.intel:  # renseignement : IP source bannie par CrowdSec (locale ou communautaire)
                 ev.intel = self.intel.lookup(ev.source_ip)
             # Pays et opérateur (bases GeoIP locales)
-            if not ev.source_country and self.geo.available and cfg.get("geoip_enabled", True):
+            if not ev.source_country and self.geo.available and cfg.get("geoip_enabled", False):
                 ev.source_country, ev.source_as = self.geo.lookup(ev.source_ip)
         # Stockage avant acquittement : en cas d'échec, les messages restent en attente et seront rejoués
         await self.store.insert(events)
@@ -180,8 +185,8 @@ class Worker:
             # sinon la sévérité de l'outil « escaladerait » de nouveau une alerte déclassée
             severity, extra = recalibrate(self.profiles.get(ev.module, ev.rule_name), severity)
             details.update(extra)
-        if ev.module == "harfanglab" and ev.kind == "alert":
-            details["tactics"] = tactics_from_raw(ev.raw)  # chaînes d'attaque et score de risque
+        if ev.kind == "alert" and ev.module in ("harfanglab", "varonis", "vectra"):
+            details["tactics"] = tactics_from_raw(ev.raw)  # chaînes d'attaque et score de risque (étiquettes MITRE)
         await self.raise_alert(
             Detection(
                 rule=rule,
@@ -544,6 +549,11 @@ async def main() -> None:
     harfanglab = HarfangLabConnector(sessionmaker(), redis)
     m365 = M365Connector(sessionmaker(), redis)
     ninjaone = NinjaOneConnector(sessionmaker(), redis)
+    cyberwatch = CyberwatchConnector(sessionmaker(), redis)
+    varonis = VaronisConnector(sessionmaker(), redis)
+    vectra = VectraConnector(sessionmaker(), redis)
+    geoip_updater = GeoIPUpdater(sessionmaker(), redis, settings.geoip_dir)
+    gravityzone = GravityZoneConnector(sessionmaker(), redis)
     crowdsec = CrowdSecConnector(sessionmaker(), redis)
     status_sync = SourceStatusSync(sessionmaker(), redis, store)
     ioc_hunter = IocHunter(sessionmaker(), redis, store, lambda: worker.rules, worker.exceptions,
@@ -568,6 +578,11 @@ async def main() -> None:
         supervise("crowdsec", crowdsec.run),
         supervise("microsoft 365", m365.run),
         supervise("ninjaone", ninjaone.run),
+        supervise("cyberwatch", cyberwatch.run),
+        supervise("varonis", varonis.run),
+        supervise("vectra", vectra.run),
+        supervise("bases GeoIP", geoip_updater.run),
+        supervise("gravityzone", gravityzone.run),
         supervise("synchro des statuts", status_sync.run),
         supervise("chasse aux IOC", ioc_hunter.run),
         supervise("archives scellées", archive_job.run),

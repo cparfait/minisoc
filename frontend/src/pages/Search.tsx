@@ -1,12 +1,14 @@
-import { BookmarkPlus, ChevronDown, Download, HelpCircle, Play, Search as SearchIcon, Trash2 } from "lucide-react";
+import { BookmarkPlus, ChevronDown, Download, ExternalLink, HelpCircle, Play, Search as SearchIcon, Trash2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { canEdit, useUser } from "../App";
 import { ToolBadge } from "../components/AlertBits";
+import { EventRaw } from "../components/EventTable";
 import Timeline from "../components/Timeline";
 import { Card, Empty, ErrorBanner, PageHeader } from "../components/ui";
 import { formatDate, formatNumber } from "../labels";
+import type { EventRow } from "../types";
 
 const PERIODS = [
   { value: "15m", label: "15 min" },
@@ -286,6 +288,12 @@ export default function Search() {
                           <td className="mono small">{[e.source_ip, e.destination_ip].filter(Boolean).join(" → ") || "—"}</td>
                           <td className="small">{[e.action, e.outcome].filter(Boolean).join(" · ")}</td>
                           <td className="small search-msg">
+                            {e.reference ? (
+                              <a href={String(e.reference)} target="_blank" rel="noopener noreferrer" className="console-link search-console"
+                                title="Ouvrir dans la console de l'outil" onClick={(ev) => ev.stopPropagation()}>
+                                <ExternalLink size={13} />
+                              </a>
+                            ) : null}
                             {e.rule_name ? <strong>{String(e.rule_name)} </strong> : null}
                             {String(e.message ?? "").slice(0, 220)}
                           </td>
@@ -293,7 +301,8 @@ export default function Search() {
                         {open === id && (
                           <tr className="search-raw">
                             <td colSpan={7}>
-                              <pre>{(() => { try { return JSON.stringify(JSON.parse(String(e.raw)), null, 2); } catch { return String(e.raw || e.message); } })()}</pre>
+                              {/* Même panneau que les autres listes : copie, analyse IA, lien vers la console de l'outil */}
+                              <EventRaw event={e as unknown as EventRow} />
                             </td>
                           </tr>
                         )}

@@ -11,11 +11,14 @@ from minisoc.parsers.bitdefender import parse_bitdefender
 from minisoc.parsers.cef import parse_cef
 from minisoc.parsers.common import parse_ts, strip_pri
 from minisoc.parsers.crowdsec import parse_crowdsec
+from minisoc.parsers.cyberwatch import parse_cyberwatch
 from minisoc.parsers.dns import is_dns_json, looks_like_dns_debug, parse_dns_debug, parse_dns_json
 from minisoc.parsers.harfanglab import parse_harfanglab
 from minisoc.parsers.m365 import parse_m365
 from minisoc.parsers.ninjaone import parse_ninjaone
 from minisoc.parsers.sophos import looks_like_sophos, parse_sophos
+from minisoc.parsers.varonis import parse_varonis
+from minisoc.parsers.vectra import parse_vectra
 from minisoc.parsers.windows import looks_like_windows, parse_windows
 
 log = logging.getLogger(__name__)
@@ -63,6 +66,12 @@ def parse_message(kind: str, payload: str, *, bitdefender_url: str = "", harfang
             return parse_m365(data, received)
         if kind == "ninjaone":
             return parse_ninjaone(data, received)
+        if kind == "cyberwatch":
+            return parse_cyberwatch(data, received)
+        if kind == "varonis":
+            return parse_varonis(data, received)
+        if kind == "vectra":
+            return parse_vectra(data, received)
         raise ValueError(f"type de message inconnu : {kind}")
     except Exception as exc:  # noqa: BLE001 - aucun message ne doit être perdu
         log.warning("message non analysable (%s) : %s", kind, exc)

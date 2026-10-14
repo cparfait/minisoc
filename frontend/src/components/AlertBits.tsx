@@ -13,6 +13,7 @@ const TOOL_COLOR: Record<string, string> = {
   varonis: "#f59e0b",
   crowdsec: "#f97316",
   ninjaone: "#22c55e",
+  cyberwatch: "#84cc16",
   ogo: "#6366f1",
 };
 

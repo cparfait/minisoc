@@ -1,5 +1,7 @@
 import { ChevronDown, ExternalLink, Monitor, Plus, ScrollText, Server } from "lucide-react";
 import { type SyntheticEvent, useRef, useState } from "react";
+import { api, query } from "../api";
+import { usePolling } from "../hooks";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { formatNumber } from "../labels";
@@ -90,6 +92,53 @@ export function HostChips({ hosts }: { hosts: ImpactedHost[] }) {
   );
 }
 
+/** Correctifs en attente d'une machine (dernier relevé Cyberwatch). */
+interface HostPatches {
+  os: string;
+  console: string;
+  reboot_required: boolean;
+  cve_count: number;
+  prioritized_count: number;
+  kev: string[];
+  patches: { product: string; from: string; to: string; patchable: boolean; cves: number; kev: string[]; prioritized: number; max_score: number | null }[];
+  patches_total: number;
+  known: boolean;
+}
+
+/** Ce qu'il faut mettre à jour sur la machine, et pourquoi : produit, version installée → version qui corrige. */
+function PatchCell({ info }: { info?: HostPatches }) {
+  if (!info) return <span className="muted">—</span>;
+  if (!info.known) return <span className="muted small">correctifs relevés au prochain passage de Cyberwatch</span>;
+  const rest = info.patches_total - Math.min(3, info.patches.length);
+  return (
+    <div className="patch-cell">
+      {info.reboot_required && <span className="patch-reboot">redémarrage requis</span>}
+      {info.patches.length === 0 ? (
+        <span className="muted small">aucun correctif en attente</span>
+      ) : (
+        <ul className="patch-list">
+          {info.patches.slice(0, 3).map((p) => (
+            <li key={`${p.product}${p.to}`} title={p.kev.length ? `Failles activement exploitées corrigées : ${p.kev.join(", ")}` : undefined}>
+              <strong>{p.product}</strong>
+              <span className="patch-version mono">{p.from || "?"} → {p.to || "dernière version"}</span>
+              <span className="patch-meta">
+                {p.cves} CVE
+                {p.kev.length > 0 && <b className="patch-kev"> · {p.kev.length} KEV</b>}
+                {p.prioritized > 0 && ` · ${p.prioritized} prioritaire${p.prioritized > 1 ? "s" : ""}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rest > 0 && (
+        <a href={info.console} target="_blank" rel="noopener noreferrer" className="small">
+          + {rest} autre{rest > 1 ? "s" : ""} correctif{rest > 1 ? "s" : ""} dans Cyberwatch
+        </a>
+      )}
+    </div>
+  );
+}
+
 interface Row extends ImpactedHost {
   server: boolean;
   reference?: string;
@@ -110,13 +159,24 @@ export function ImpactedHosts({ hosts, events }: { hosts: ImpactedHost[]; events
   }
   const rows: Row[] = hosts.map((h) => {
     const extra = byHost.get(h.name.toLowerCase());
-    return { ...h, server: isServer(h.name), reference: extra?.reference, events: extra?.events ?? 0 };
+    return { ...h, server: h.asset_type === "serveur" || (!h.asset_type && isServer(h.name)), reference: extra?.reference, events: extra?.events ?? 0 };
   });
   for (const [key, v] of byHost) {
     if (!rows.some((r) => r.name.toLowerCase() === key)) {
       rows.push({ name: v.name, count: 0, rules: [], server: isServer(v.name), reference: v.reference, events: v.events });
     }
   }
+  const names = rows.map((r) => r.name).join(",");
+  const cyber = usePolling(
+    () => (names ? api<{ hosts: Record<string, HostPatches> }>(`/cyberwatch/hosts${query({ names })}`) : Promise.resolve({ hosts: {} as Record<string, HostPatches> })),
+    [names],
+    0,
+  );
+  const patches: Record<string, HostPatches> = cyber.data?.hosts ?? {};
+  const withPatches = Object.keys(patches).length > 0;
+  // Colonne « Détections en cause » inutile quand toutes les machines ont la même (celle du titre de l'alerte)
+  const ruleSet = new Set(rows.map((r) => r.rules.join(" · ")));
+  const showRules = ruleSet.size > 1;
   if (!rows.length) return null;
   rows.sort((a, b) => Number(b.server) - Number(a.server) || (b.count || b.events) - (a.count || a.events) || a.name.localeCompare(b.name));
   const servers = rows.filter((r) => r.server).length;
@@ -133,8 +193,11 @@ export function ImpactedHosts({ hosts, events }: { hosts: ImpactedHost[]; events
         <thead>
           <tr>
             <th>Machine</th>
+            <th>Type</th>
+            <th>Criticité</th>
             <th className="num">Détections</th>
-            <th>Détections en cause</th>
+            {withPatches && <th>À mettre à jour (Cyberwatch)</th>}
+            {showRules && <th>Détections en cause</th>}
             <th aria-label="Actions" />
           </tr>
         </thead>
@@ -145,15 +208,20 @@ export function ImpactedHosts({ hosts, events }: { hosts: ImpactedHost[]; events
                 <span className="impacted-name">
                   {r.server ? <Server size={15} /> : <Monitor size={15} />}
                   <Link to={`/assets/host/${encodeURIComponent(r.name)}`} className="asset-link"><strong className="mono">{r.name}</strong></Link>
-                  {r.server && <span className="impacted-kind">serveur</span>}
-                  {r.criticality && r.criticality !== "normal" && (
-                    <span className={`impacted-kind crit-${r.criticality}`}>criticité {CRIT_LABEL[r.criticality]}</span>
-                  )}
                 </span>
                 {(r.owner || r.service) && <div className="muted small">{[r.owner, r.service].filter(Boolean).join(" · ")}</div>}
               </td>
+              <td>{r.server ? <span className="impacted-kind">serveur</span> : <span className="muted small">poste</span>}</td>
+              <td>
+                {r.criticality && r.criticality !== "normal" ? (
+                  <span className={`impacted-kind crit-${r.criticality}`}>{CRIT_LABEL[r.criticality]}</span>
+                ) : (
+                  <span className="muted small">normale</span>
+                )}
+              </td>
               <td className="num">{formatNumber(r.count || r.events)}</td>
-              <td className="impacted-rules">{r.rules.length ? r.rules.join(" · ") : <span className="muted">—</span>}</td>
+              {withPatches && <td><PatchCell info={patches[r.name]} /></td>}
+              {showRules && <td className="impacted-rules">{r.rules.length ? r.rules.join(" · ") : <span className="muted">—</span>}</td>}
               <td className="impacted-actions">
                 <Link to={`/events?host=${encodeURIComponent(r.name)}&period=7d`} className="console-link" title="Événements de la machine (7 jours)">
                   <ScrollText size={14} />

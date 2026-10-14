@@ -19,11 +19,13 @@ def test_every_field_and_enable_key_exists_in_settings():
 
 def test_states():
     sophos = BY_ID["sophos_xgs"]
-    assert status(sophos, {}, {})["state"] == "waiting"
-    assert status(sophos, {}, {"sophos_xgs": NOW})["state"] == "active"
-    assert status(sophos, {}, {"sophos_xgs": NOW - timedelta(hours=2)})["state"] == "silent"
+    on = {"src_sophos_xgs_enabled": True}
+    assert status(sophos, {}, {})["state"] == "disabled"  # aucune intégration active par défaut
+    assert status(sophos, on, {})["state"] == "waiting"
+    assert status(sophos, on, {"sophos_xgs": NOW})["state"] == "active"
+    assert status(sophos, on, {"sophos_xgs": NOW - timedelta(hours=2)})["state"] == "silent"
     assert status(sophos, {"src_sophos_xgs_enabled": False}, {})["state"] == "disabled"
-    harfang = status(BY_ID["harfanglab"], {}, {})
+    harfang = status(BY_ID["harfanglab"], {"src_harfanglab_enabled": True}, {})
     assert harfang["state"] == "not_configured" and "Jeton d'API (lecture seule)" in harfang["missing"]
     assert status(BY_ID["ogo"], {}, {})["state"] == "planned"
 
@@ -31,8 +33,15 @@ def test_states():
 def test_disabled_sources_are_dropped_and_not_monitored():
     cfg = {"src_vectra_enabled": False, "src_sophos_xgs_enabled": True}
     assert "vectra" in disabled_modules(cfg) and "sophos_xgs" not in disabled_modules(cfg)
-    monitored = monitored_sources({"src_harfanglab_enabled": False})
+    monitored = monitored_sources({"src_harfanglab_enabled": False, "src_sophos_xgs_enabled": True})
     assert "harfanglab" not in monitored and monitored["sophos_xgs"] == timedelta(minutes=30)
+    assert monitored_sources({}) == {} and "sophos_xgs" in disabled_modules({})  # désactivées par défaut
+
+
+def test_integrations_disabled_by_default():
+    for item in CATALOG:
+        if item.enable_key:
+            assert FIELDS[item.enable_key].default is False, item.id
 
 
 def test_secrets_never_in_catalog_payload():

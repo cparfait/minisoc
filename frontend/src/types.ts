@@ -25,6 +25,8 @@ export interface ImpactedHost {
   criticality?: "low" | "normal" | "high" | "vital";
   owner?: string;
   service?: string;
+  /** Inventaire : « serveur », « poste »… (saisi par la DSI ou synchronisé) */
+  asset_type?: string;
 }
 
 /** Clôture constatée dans l'outil d'origine (synchronisation des statuts). */
@@ -162,7 +164,7 @@ export interface Overview {
   new_24h: number;
   trend: ({ day: string } & Record<Severity, number>)[];
   top_rules: { rule_id: string; rule_name: string; count: number }[];
-  top_attackers: { ip: string; failures: number; users: number; sample_users: string[]; country?: string; asn?: string; intel?: string }[];
+  top_attackers: { ip: string; failures: number; users: number; sample_users: string[]; country?: string; asn?: string; intel?: string; name?: string }[];
   failures_by_country: { country: string; failures: number; ips: number }[];
   auth_failures_hourly: { hour: string; count: number }[];
   events_by_module: { module: string; count: number }[];
