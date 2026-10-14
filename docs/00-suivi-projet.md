@@ -280,6 +280,13 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
 - Notifications réelles (SMTP de la collectivité, canal Teams, ntfy) et plages horaires.
 - Écran mural : créer le jeton d'affichage du poste de diffusion.
 - Réglage des seuils et exceptions après 2 à 4 semaines de journaux réels.
+- ✅ 13/10 : **ISO d'installation automatique Debian 13 pour vSphere/VxRail** (`deploy/iso`, doc 04 § 2 bis) :
+  installation sans intervention (UEFI + Secure Boot), disque de données, Docker (plage d'adresses choisie),
+  durcissement (§ 4, fail2ban, pwquality, modules bloqués), Mini-SOC construit et démarré, pare-feu actif en mode
+  initial, sauvegardes planifiées ; console `sudo minisoc-setup` (menus, retour arrière automatique) pour les
+  adresses du site, les clés SSH, le certificat web (PKI ou wildcard), le compte de secours. Bases de données sur
+  un réseau Docker `internal` (aucune sortie). Testée sous QEMU (UEFI Secure Boot, VMXNET3, 2 disques) ; reste à
+  valider sur le VxRail.
 
 ## 4. Points d'attention
 

@@ -14,3 +14,6 @@ data/geoip/*.mmdb
 backups/
 data/geoip/.geoipupdate.lock
 data/syslog-tls/
+deploy/iso/vm.conf
+deploy/iso/authorized_keys
+data/tls/

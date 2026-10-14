@@ -1,0 +1,16 @@
+[Unit]
+Description=Mini-SOC : disque de données, durcissement et Docker (premier démarrage)
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/minisoc-firstboot.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/minisoc-firstboot
+RemainAfterExit=yes
+TimeoutStartSec=0
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

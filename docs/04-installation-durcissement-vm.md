@@ -3,7 +3,11 @@
 Ce document décrit l'installation pas à pas de la VM et son durcissement. Il complète
 [03-preparation-vm.md](03-preparation-vm.md) (dimensionnement, flux réseau, comptes à préparer).
 
-Référence : **Debian 12** (les commandes sont identiques sous Ubuntu 24.04, sauf mention contraire).
+Référence : **Debian 13** (les commandes sont identiques sous Ubuntu 24.04, sauf mention contraire).
+
+> **Installation automatique (recommandée)** : l'ISO générée par `deploy/iso/build-iso.sh` applique seule les
+> § 3 à 8 (voir [§ 2 bis](#2-bis-installation-automatique-par-liso-mini-soc)). Le reste du document sert de
+> référence et de procédure manuelle.
 Les adresses IP en `192.168.x.x` sont des **exemples à remplacer**.
 
 ---
@@ -69,9 +73,62 @@ On compense par six règles :
 
 ---
 
-## 3. Installation de Debian 12
+## 2 bis. Installation automatique par l'ISO Mini-SOC
 
-1. Image `debian-12.x-amd64-netinst.iso`, installation **en mode texte**.
+L'ISO est construite sur un poste disposant de Docker, à partir de l'ISO netinst officielle de Debian
+(téléchargée et vérifiée par son empreinte SHA-512). Elle ne contient **aucun secret**.
+
+```bash
+cp deploy/iso/vm.conf.example deploy/iso/vm.conf     # facultatif : réseau, NTP, proxy, plage Docker
+docker run --rm -v "${PWD}:/work" -w /work debian:13-slim sh deploy/iso/build-iso.sh
+```
+
+Résultat : `build/iso/minisoc-debian-13.x-amd64-auto.iso` (et son empreinte `.sha256`). Une valeur laissée vide
+dans `vm.conf` (IP, masque, passerelle, DNS, domaine, mot de passe d'`adminsoc`) est demandée pendant
+l'installation. Des clés SSH publiques peuvent être placées dans `deploy/iso/authorized_keys` (une par ligne) ;
+sinon `sudo minisoc-setup` les demande ensuite.
+
+**Plage Docker** (`DOCKER_POOL`, défaut `10.255.0.0/16`) : les réseaux internes de Docker y sont pris. Elle doit
+être **hors de toute plage utilisée** (LAN, VLAN, sites distants, VPN), sinon la VM ne joint plus les machines de
+cette plage. Le premier démarrage vérifie qu'elle ne chevauche ni le réseau de la VM, ni sa passerelle, ses DNS ou
+ses serveurs de temps.
+
+**Dans vSphere (VxRail)** :
+
+1. Déposer l'ISO dans le datastore vSAN (Datastore › Fichiers › Charger).
+2. Nouvelle VM : système invité *Linux › Debian GNU/Linux 12 (64 bits)* ou plus récent selon la version de vSphere,
+   8 vCPU, 16 Go, **disque 1 : 40 Go**, **disque 2 : 500 Go** (provisionnement fin possible), carte **VMXNET3**
+   sur le port group du LAN (ou du VLAN dédié), contrôleur PVSCSI ou LSI. Options de démarrage : **EFI** et
+   **démarrage sécurisé** cochés. Lecteur CD : l'ISO, « connecter à la mise sous tension ».
+3. Démarrer, ouvrir la console, valider l'entrée « Mini-SOC : installation automatique » avec **Entrée** (le menu
+   attend volontairement : une VM qui redémarrerait sur le CD ne se réinstalle pas seule). Répondre aux
+   questions éventuelles (réseau, mot de passe).
+4. La VM redémarre et termine seule (15 à 30 minutes, journal sur la console et dans
+   `/var/log/minisoc-firstboot.log`) :
+   - disque de données formaté et monté sur `/var/lib/docker` ;
+   - Docker (§ 5) et durcissement (§ 4) ;
+   - Mini-SOC installé dans `/opt/minisoc`, `.env` créé, certificats syslog TLS générés, application construite
+     et démarrée (§ 7) ;
+   - pare-feu actif en **mode initial** : seules les plages privées sont acceptées (§ 6) ;
+   - sauvegardes chiffrées planifiées (§ 8).
+5. Se connecter (console ou `ssh adminsoc@<IP>`) et lancer **`sudo minisoc-setup`** : console de paramétrage en
+   menus (postes DSI, écran mural, sources syslog, AD, SMTP, XGS, CrowdSec, ports SaaS, serveur de sauvegarde,
+   clés SSH, certificat web, compte de secours, jeton de l'écran mural, fichiers à déployer, état de la VM).
+   « Appliquer » arme un **retour arrière automatique** de 3 minutes : sans confirmation depuis une nouvelle
+   session, l'ancienne configuration du pare-feu et de SSH est rétablie.
+6. Retirer l'ISO du lecteur CD de la VM, puis faire un instantané « installation terminée ».
+
+Accès Internet nécessaires pendant l'installation (en 80 et 443) : `deb.debian.org`, `security.debian.org`,
+`download.docker.com`, `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com`, `ghcr.io`,
+`registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`. Sans accès direct, renseigner `HTTP_PROXY` dans
+`vm.conf`.
+
+Restent manuels : la clé maître et la phrase de passe des sauvegardes à copier dans le coffre-fort (§ 7.1, § 8),
+le certificat racine à déployer par GPO (§ 7.2), les agents HarfangLab/NinjaOne (§ 9), les règles du XGS (§ 6.4).
+
+## 3. Installation de Debian 13
+
+1. Image `debian-13.x-amd64-netinst.iso`, installation **en mode texte**.
 2. Réseau : **IP fixe** (pas de DHCP), nom d'hôte `minisoc`, domaine `mairie.local`.
 3. Mot de passe root : **laisser vide**. Root est alors verrouillé et le premier compte reçoit `sudo`.
 4. Premier compte : `adminsoc` (compte nominatif d'administration ; un compte par administrateur si vous êtes
@@ -180,6 +237,7 @@ kernel.unprivileged_bpf_disabled = 1
 net.core.bpf_jit_harden = 2
 kernel.yama.ptrace_scope = 1
 kernel.sysrq = 0
+kernel.unprivileged_userns_clone = 0
 fs.protected_hardlinks = 1
 fs.protected_symlinks = 1
 fs.protected_fifos = 2
@@ -235,6 +293,41 @@ sudo systemctl disable --now nftables   # IMPORTANT : sa configuration par défa
                                         # qui effacerait les règles de Docker (le pare-feu est géré au § 6)
 ```
 
+### 4.7 Système, comptes et fail2ban
+
+```bash
+sudo apt install -y fail2ban python3-systemd libpam-pwquality apparmor apparmor-utils
+```
+
+| Mesure | Fichier |
+| --- | --- |
+| Protocoles et systèmes de fichiers inutiles, stockage USB et FireWire refusés (`install … /bin/false`) : dccp, sctp, rds, tipc, cramfs, freevxfs, hfs, hfsplus, jffs2, usb-storage, firewire-core | `/etc/modprobe.d/minisoc-blacklist.conf` |
+| `/dev/shm` en `nodev,nosuid,noexec` | `/etc/fstab` |
+| Pas de fichier `core` | `/etc/security/limits.d/90-minisoc.conf` : `* hard core 0` |
+| Mots de passe locaux : 12 caractères, 3 classes | `/etc/security/pwquality.conf` : `minlen = 12`, `minclass = 3` |
+| `su` réservé au groupe `sudo` | `/etc/pam.d/su` : `auth required pam_wheel.so group=sudo` |
+| AppArmor actif (profils des conteneurs Docker) | `sudo aa-status` |
+
+fail2ban bannit 1 h (durée croissante en cas de récidive) une adresse qui échoue 5 fois en 10 minutes sur SSH,
+dans sa propre table nftables (`/etc/fail2ban/jail.d/minisoc.local`) :
+
+```ini
+[DEFAULT]
+backend = systemd
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+bantime = 1h
+bantime.increment = true
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+mode = aggressive
+```
+
+L'interface web a son propre verrouillage après échecs de connexion ; fail2ban ne la concerne pas.
+
 ---
 
 ## 5. Docker
@@ -259,7 +352,9 @@ Configuration du démon (`/etc/docker/daemon.json`) :
   "live-restore": true,
   "userland-proxy": false,
   "no-new-privileges": true,
-  "icc": false
+  "icc": false,
+  "bip": "10.255.255.1/24",
+  "default-address-pools": [{ "base": "10.255.0.0/16", "size": 24 }]
 }
 ```
 
@@ -270,6 +365,11 @@ Configuration du démon (`/etc/docker/daemon.json`) :
 | `userland-proxy: false` | Les ports publiés passent par le pare-feu du noyau, donc par les règles du § 6 |
 | `no-new-privileges` | Un processus d'un conteneur ne peut pas gagner de privilèges (binaires setuid) |
 | `icc: false` | Pas de communication entre conteneurs du réseau par défaut (le Mini-SOC utilise son propre réseau) |
+| `bip` / `default-address-pools` | Plage des réseaux Docker choisie (sinon 172.17 à 172.31) : à prendre **hors de toute plage utilisée** sur le réseau, sinon la VM ne joint plus les machines de cette plage |
+
+Réseaux du Mini-SOC (`docker-compose.yml`) : PostgreSQL, Redis et ClickHouse sont sur le réseau `data`, déclaré
+`internal` : **aucune sortie** possible, ni vers le LAN ni vers Internet, et joignable seulement par l'API et le
+worker. Seuls l'interface web (Caddy : 443, 80 redirigé) et la réception syslog (514, 6514) publient des ports.
 
 ```bash
 sudo systemctl restart docker
@@ -296,11 +396,11 @@ Les deux sont générés par un seul script, à partir d'un seul fichier d'adres
 
 ### 6.1 Fichier des adresses autorisées
 
-`/etc/minisoc/firewall.conf` (adresses séparées par des espaces) :
+`/etc/minisoc/firewall.conf` (adresses ou plages CIDR, séparées par des espaces) :
 
 ```sh
 # Pare-feu du Mini-SOC : adresses autorisées. Après modification : sudo systemctl restart minisoc-firewall
-LAN_IF="ens18"                          # interface réseau de la VM (commande : ip -br link)
+LAN_IF="ens192"                         # interface réseau de la VM (VMXNET3 sous vSphere ; commande : ip -br link)
 
 # --- Entrant ---
 ADMINS="192.168.10.21 192.168.10.22"    # postes DSI : SSH et interface web
@@ -327,107 +427,24 @@ sudo nano /etc/minisoc/firewall.conf
 
 ### 6.2 Script
 
-`/usr/local/sbin/minisoc-firewall` :
-
-```sh
-#!/bin/sh
-# Pare-feu de la VM Mini-SOC : la machine (table nftables inet minisoc_host) et les conteneurs (chaîne
-# DOCKER-USER). Lancé au démarrage avant Docker ; relancer après modification de /etc/minisoc/firewall.conf.
-set -eu
-. /etc/minisoc/firewall.conf
-IPT="iptables -w"
-csv() { echo "$*" | tr -s ' ' ',' | sed 's/^,//; s/,$//'; }
-
-# ---------- 1. La machine (SSH, NTP, DNS, mises à jour) ----------
-nft -f - <<EOF
-table inet minisoc_host
-delete table inet minisoc_host
-table inet minisoc_host {
-  set admins { type ipv4_addr; elements = { $(csv $ADMINS) } }
-  set dns { type ipv4_addr; elements = { $(csv $DNS) } }
-  set ntp { type ipv4_addr; elements = { $(csv $NTP) } }
-  chain input {
-    type filter hook input priority filter; policy drop;
-    iif lo accept
-    ct state established,related accept
-    ct state invalid drop
-    icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 10/second accept
-    ip saddr @admins tcp dport 22 ct state new accept
-    ${BACKUP_SERVER:+ip saddr $BACKUP_SERVER tcp dport 22 ct state new accept}
-    limit rate 6/minute log prefix "minisoc-hote-refus-entree " level info
-  }
-  chain output {
-    type filter hook output priority filter; policy drop;
-    oif lo accept
-    ct state established,related accept
-    ip daddr @dns meta l4proto { tcp, udp } th dport 53 accept
-    ip daddr @ntp udp dport 123 accept
-    ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport { 80, 443 } accept
-    oifname != "$LAN_IF" accept
-    limit rate 6/minute log prefix "minisoc-hote-refus-sortie " level info
-  }
-}
-EOF
-
-# ---------- 2. Les conteneurs (chaîne DOCKER-USER) ----------
-$IPT -N DOCKER-USER 2>/dev/null || true
-$IPT -F DOCKER-USER
-$IPT -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
-
-allow_in() {  # allow_in <port> <tcp|udp> <sources…> : port publié par un conteneur
-  port=$1; proto=$2; shift 2
-  for src in "$@"; do
-    $IPT -A DOCKER-USER -i "$LAN_IF" -s "$src" -p "$proto" \
-      -m conntrack --ctstate NEW --ctorigdstport "$port" --ctdir ORIGINAL -j RETURN
-  done
-}
-allow_in 443 tcp $ADMINS $WALL $BITDEFENDER_PROXY
-allow_in 80 tcp $ADMINS                       # redirection vers HTTPS
-allow_in 514 tcp $SYSLOG_TCP
-allow_in 6514 tcp $SYSLOG_TLS
-allow_in 514 udp $SYSLOG_UDP
-$IPT -A DOCKER-USER -i "$LAN_IF" -m limit --limit 6/min -j LOG --log-prefix "minisoc-docker-refus-entree "
-$IPT -A DOCKER-USER -i "$LAN_IF" -j DROP
-
-for d in $DNS; do
-  $IPT -A DOCKER-USER -o "$LAN_IF" -d "$d" -p udp --dport 53 -j RETURN
-  $IPT -A DOCKER-USER -o "$LAN_IF" -d "$d" -p tcp --dport 53 -j RETURN
-done
-for hp in $LAN_OUT; do
-  $IPT -A DOCKER-USER -o "$LAN_IF" -d "${hp%:*}" -p tcp --dport "${hp##*:}" -m conntrack --ctstate NEW -j RETURN
-done
-for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do   # le reste du réseau interne : refusé
-  $IPT -A DOCKER-USER -o "$LAN_IF" -d "$net" -m limit --limit 6/min -j LOG --log-prefix "minisoc-docker-refus-lan "
-  $IPT -A DOCKER-USER -o "$LAN_IF" -d "$net" -j DROP
-done
-$IPT -A DOCKER-USER -o "$LAN_IF" -p tcp -m multiport --dports "$INTERNET_PORTS" -m conntrack --ctstate NEW -j RETURN
-$IPT -A DOCKER-USER -o "$LAN_IF" -m limit --limit 6/min -j LOG --log-prefix "minisoc-docker-refus-sortie "
-$IPT -A DOCKER-USER -o "$LAN_IF" -j DROP
-$IPT -A DOCKER-USER -j RETURN                  # trafic entre conteneurs : inchangé
-echo "Pare-feu Mini-SOC appliqué."
-```
+Le script est dans le dépôt : [`deploy/firewall/minisoc-firewall`](../deploy/firewall/minisoc-firewall). Il crée
+la table nftables `inet minisoc_host` (la machine : SSH depuis `ADMINS` et `BACKUP_SERVER`, sorties DNS, NTP et
+Internet 80/443) et remplit la chaîne `DOCKER-USER` (les conteneurs : 443 depuis `ADMINS` et `WALL`, 80 depuis
+`ADMINS`, syslog depuis les sources déclarées ; vers le LAN seulement `DNS` et `LAN_OUT`, vers Internet seulement
+`INTERNET_PORTS`). Tout refus est journalisé (`minisoc-hote-refus-*`, `minisoc-docker-refus-*`). Il refuse de
+s'appliquer si `LAN_IF`, `ADMINS`, `DNS` ou `NTP` est vide, ce qui fermerait l'accès.
 
 ```bash
-sudo chmod 750 /usr/local/sbin/minisoc-firewall
+sudo install -m 750 deploy/firewall/minisoc-firewall /usr/local/sbin/minisoc-firewall
 ```
 
 ### 6.3 Démarrage automatique, avant Docker
 
-`/etc/systemd/system/minisoc-firewall.service` :
+[`deploy/firewall/minisoc-firewall.service`](../deploy/firewall/minisoc-firewall.service) (lancé après le
+montage des disques, avant Docker) :
 
-```ini
-[Unit]
-Description=Pare-feu Mini-SOC (machine et conteneurs)
-After=local-fs.target
-Before=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/sbin/minisoc-firewall
-
-[Install]
-WantedBy=multi-user.target
+```bash
+sudo install -m 644 deploy/firewall/minisoc-firewall.service /etc/systemd/system/
 ```
 
 ```bash
@@ -513,17 +530,15 @@ Reprise de la configuration du poste de développement (HarfangLab déjà régl�
 
 Deux possibilités, de la meilleure à la plus simple :
 
-1. **Certificat de votre PKI AD** (AD CS) pour `minisoc.mairie.local` : copier `minisoc.crt` (avec la chaîne)
-   et `minisoc.key` dans `/etc/minisoc/tls/` (droits 600). Créer `/opt/minisoc/docker-compose.override.yml` :
+1. **Certificat de votre PKI AD** (AD CS) ou wildcard pour le nom du Mini-SOC : copier `minisoc.crt` (avec la
+   chaîne) et `minisoc.key` dans `/etc/minisoc/tls/` (droits 600). Dans `.env` : `MINISOC_TLS_DIR=/etc/minisoc/tls` et `MINISOC_TLS=/certs/minisoc.crt /certs/minisoc.key`, puis
+   `sudo docker compose up -d`. `sudo minisoc-setup` › Certificat web le fait à partir d'un PFX ou d'un PEM : il
+   vérifie que la clé correspond, que le nom est couvert et que la chaîne est complète.
 
-   ```yaml
-   services:
-     web:
-       volumes:
-         - /etc/minisoc/tls:/certs:ro
-   ```
-
-   Dans `deploy/caddy/Caddyfile`, remplacer `tls internal` par `tls /certs/minisoc.crt /certs/minisoc.key`.
+   **Certificat wildcard** (`*.mairie.fr`) : utilisable si le nom de l'interface est dans ce domaine, sur un seul
+   niveau (`minisoc.mairie.fr`, avec un enregistrement DNS interne). Sa clé vaut pour tout le domaine : une
+   compromission de la VM permettrait d'usurper n'importe quel sous-domaine. Un certificat dédié au seul nom du
+   Mini-SOC reste préférable.
 2. **Autorité interne de Caddy** (`tls internal`, par défaut) : après le premier démarrage, récupérer son
    certificat racine (`sudo docker compose cp web:/data/caddy/pki/authorities/local/root.crt .`) et le
    déployer par **GPO** sur les postes DSI et l'écran mural (Autorités de certification racines de confiance).

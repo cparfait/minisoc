@@ -1,0 +1,12 @@
+[Unit]
+Description=Pare-feu Mini-SOC (machine et conteneurs)
+After=local-fs.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/minisoc-firewall
+
+[Install]
+WantedBy=multi-user.target

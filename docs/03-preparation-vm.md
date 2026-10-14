@@ -8,7 +8,7 @@ ci-dessous. Les secrets (mots de passe, jetons, clés) se saisissent **dans l'in
 
 | Élément | Minimum | Conseillé |
 | --- | --- | --- |
-| Système | Ubuntu Server 24.04 LTS ou Debian 12 | idem |
+| Système | Debian 13 (ISO d'installation automatique : `deploy/iso`) ou Ubuntu Server 24.04 LTS | idem |
 | Processeur | 4 vCPU | 8 vCPU |
 | Mémoire | 8 Go | 16 Go |
 | Disque | 200 Go SSD | 500 Go SSD (journaux conservés 365 jours) |

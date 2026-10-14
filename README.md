@@ -35,7 +35,7 @@ Navigateur ──HTTPS──► Caddy ──► interface React + API
 
 ## Installation
 
-Prérequis : une VM Linux (Debian 12 / Ubuntu 24.04), 4 vCPU, 16 Go RAM, 500 Go SSD, Docker + Compose,
+Prérequis : une VM Linux (Debian 13 / Ubuntu 24.04 ; ISO d'installation automatique pour vSphere : `deploy/iso`, voir le guide ci-dessous), 4 vCPU, 16 Go RAM, 500 Go SSD, Docker + Compose,
 Python 3 (uniquement pour générer les secrets). Installation et durcissement de la VM sur le LAN (pare-feu local,
 SSH, sauvegardes) : [docs/04-installation-durcissement-vm.md](docs/04-installation-durcissement-vm.md).
 
@@ -53,8 +53,8 @@ ensuite de l'Active Directory (voir « Connexion »).
 
 Interface : `https://<MINISOC_HOSTNAME>`. Le certificat est émis par l'autorité interne de Caddy : installer
 son certificat racine sur les postes d'administration
-(`docker compose cp web:/data/caddy/pki/authorities/local/root.crt .`) ou configurer un certificat de votre PKI
-dans `deploy/caddy/Caddyfile`.
+(`docker compose cp web:/data/caddy/pki/authorities/local/root.crt .`) ou utiliser un certificat de votre PKI
+(ou wildcard) : `MINISOC_TLS` et `MINISOC_TLS_DIR` dans `.env`, voir le guide d'installation § 7.2.
 
 ## Raccorder les sources
 

@@ -1,0 +1,26 @@
+# Paramètres de la VM Mini-SOC pour l'ISO d'installation automatique.
+# Copier en deploy/iso/vm.conf puis remplir. Une valeur laissée vide est demandée pendant l'installation.
+# Valeurs entre apostrophes (le fichier est lu par le shell).
+
+VM_HOSTNAME='minisoc'
+VM_DOMAIN=''                 # ex. mairie.local
+
+# Réseau (IP fixe). Si VM_IP est vide, l'installateur demande l'adresse, le masque, la passerelle et les DNS.
+VM_IP=''                     # ex. 192.168.10.50
+VM_NETMASK=''                # ex. 255.255.255.0
+VM_GATEWAY=''                # ex. 192.168.10.1
+VM_DNS=''                    # contrôleurs de domaine, séparés par des espaces, ex. '192.168.10.2 192.168.10.3'
+
+# Serveurs de temps (contrôleurs de domaine), séparés par des espaces. Vide : serveurs Internet de Debian.
+VM_NTP=''
+
+# Proxy HTTP pour les paquets Debian et Docker, si la VM n'a pas d'accès direct. Ex. 'http://192.168.10.5:3128'
+HTTP_PROXY=''
+
+# Mot de passe du compte adminsoc : laisser vide pour le saisir pendant l'installation (recommandé : aucun
+# secret dans l'ISO). Sinon, empreinte SHA-512 produite par : openssl passwd -6
+ADMIN_PASSWORD_HASH=''
+
+# Plage d'adresses des réseaux Docker internes : à choisir hors de toute plage utilisée sur le réseau (LAN, VLAN,
+# sites distants, VPN), sinon la VM ne peut plus joindre les machines de cette plage. Défaut : 10.255.0.0/16
+DOCKER_POOL='10.255.0.0/16'

@@ -16,7 +16,7 @@ x-backend: &backend
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
     clickhouse: { condition: service_healthy }
-  networks: [backend]
+  networks: [backend, data]
 
 services:
   postgres:
@@ -31,7 +31,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U minisoc -d minisoc"]
       interval: 5s
       retries: 20
-    networks: [backend]
+    networks: [data]
 
   redis:
     image: redis:7-alpine
@@ -42,7 +42,7 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 20
-    networks: [backend]
+    networks: [data]
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.8
@@ -59,7 +59,7 @@ services:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8123/ping || exit 1"]
       interval: 5s
       retries: 30
-    networks: [backend]
+    networks: [data]
 
   api:
     <<: *backend
@@ -134,11 +134,14 @@ services:
     restart: unless-stopped
     environment:
       MINISOC_HOSTNAME: ${MINISOC_HOSTNAME:-localhost}
+      MINISOC_TLS: ${MINISOC_TLS:-internal}
     ports:
       - "${WEB_BIND:-0.0.0.0}:443:443"
       - "${WEB_BIND:-0.0.0.0}:80:80"
     volumes:
       - caddydata:/data
+      # Certificat de votre PKI ou wildcard (voir MINISOC_TLS) ; vide avec l'autorité interne de Caddy
+      - ${MINISOC_TLS_DIR:-./data/tls}:/certs:ro
     depends_on: [api]
     networks: [backend]
 
@@ -153,3 +156,6 @@ volumes:
 
 networks:
   backend:
+  # Bases de données : réseau sans aucune sortie (ni LAN ni Internet), joignable seulement par l'API et le worker
+  data:
+    internal: true

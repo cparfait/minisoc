@@ -3,9 +3,10 @@
 }
 
 {$MINISOC_HOSTNAME} {
-	# Certificat émis par l'autorité locale de Caddy (réseau interne).
-	# Remplacer par `tls /chemin/cert.pem /chemin/key.pem` pour un certificat de votre PKI.
-	tls internal
+	# Par défaut, certificat émis par l'autorité locale de Caddy (réseau interne). Certificat de votre PKI ou
+	# wildcard : MINISOC_TLS=/certs/minisoc.crt /certs/minisoc.key dans .env, fichiers dans MINISOC_TLS_DIR
+	# (sudo minisoc-setup le fait sur la VM).
+	tls {$MINISOC_TLS:internal}
 
 	encode gzip
 
