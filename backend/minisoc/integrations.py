@@ -337,7 +337,9 @@ CATALOG: tuple[Integration, ...] = (
             "1. Images du Mini-SOC : rien à faire, l'analyse tourne chaque semaine sur la VM (service "
             "minisoc-trivy) ; bouton « Analyser maintenant » ci-dessous.\n"
             "2. Serveurs : créer un jeton par serveur (onglet Configuration), installer l'agent avec ce jeton et "
-            "autoriser le serveur en 443 vers la VM (sudo minisoc-setup › Entrants › Serveurs Trivy)."
+            "autoriser le serveur en 443 vers la VM (sudo minisoc-setup › Entrants › Serveurs Trivy). Cette liste "
+            "ne donne que l'envoi des rapports : l'interface web et le reste de l'API sont refusés (403) à ces "
+            "serveurs, sauf adresse aussi déclarée en administration ou en écran mural."
         ),
     ),
     Integration(

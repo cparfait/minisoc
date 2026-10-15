@@ -4,10 +4,32 @@
 	default_sni {$MINISOC_IP:127.0.0.1}
 }
 
+# Serveurs Trivy (sudo minisoc-setup › Entrants › Serveurs Trivy) : le pare-feu leur ouvre le 443, Caddy ne leur
+# laisse que l'envoi des rapports (POST /api/ingest/trivy) ; tout le reste est refusé (403). Une adresse également
+# déclarée en administration ou en écran mural garde l'accès complet. Listes recopiées de /etc/minisoc/firewall.conf
+# dans .env par minisoc-setup (MINISOC_TRIVY_IPS = TRIVY, MINISOC_WEB_IPS = ADMINS et WALL) ; une liste vide ne
+# désigne aucune adresse. remote_ip : adresse de la connexion elle-même, aucun en-tête X-Forwarded-For n'est lu.
+(acces_trivy) {
+	@trivy_hors_envoi {
+		remote_ip {$MINISOC_TRIVY_IPS}
+		not remote_ip {$MINISOC_WEB_IPS}
+		not {
+			method POST
+			path /api/ingest/trivy
+		}
+	}
+	handle @trivy_hors_envoi {
+		respond 403
+	}
+}
+
 # Accès par l'adresse IP (https://<IP>) : renvoi vers le nom, seul couvert par le certificat de l'interface
 https://{$MINISOC_IP:127.0.0.1} {
 	tls internal
-	redir https://{$MINISOC_HOSTNAME}{uri} 308
+	import acces_trivy
+	handle {
+		redir https://{$MINISOC_HOSTNAME}{uri} 308
+	}
 }
 
 {$MINISOC_HOSTNAME} {
@@ -27,6 +49,9 @@ https://{$MINISOC_IP:127.0.0.1} {
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 		-Server
 	}
+
+	# En premier : les blocs handle s'excluent, le premier qui correspond l'emporte
+	import acces_trivy
 
 	# La documentation interactive de l'API n'est pas exposée
 	handle /api/docs* {

@@ -48,6 +48,8 @@ Ce qui est remonté :
    première analyse et l'envoie.
 4. **Pare-feu de la VM** : `sudo minisoc-setup` › Entrants › **Serveurs Trivy** : ajouter l'adresse du serveur
    (443/TCP vers la VM), puis Appliquer. Autoriser aussi ce flux sur le XGS si le serveur est dans une autre zone.
+   Cette liste ne donne que l'envoi des rapports (`POST /api/ingest/trivy`) : l'interface web et le reste de l'API
+   répondent 403 à ces serveurs, sauf adresse aussi déclarée en administration ou en écran mural.
 5. Vérifier : la ligne du serveur apparaît dans la fiche (« Dernier rapport ») et sur la page Vulnérabilités.
 
 Réglages de l'agent : `/etc/minisoc-trivy-agent.conf` (images analysées : `running`, `all` ou `none` ; paquets du
@@ -58,6 +60,7 @@ Analyse immédiate : `sudo minisoc-trivy-agent run`. Retrait : `sudo minisoc-tri
 ## En cas de problème
 - « Analyse de la VM en échec » : `sudo journalctl -u minisoc-trivy -n 50` (base des failles injoignable,
   disque plein…).
-- Serveur refusé : HTTP 401 (jeton erroné ou révoqué), 403 (adresse non autorisée pour ce jeton, ou intégration
-  désactivée) ; aucune réponse : pare-feu de la VM (liste Serveurs Trivy) ou du XGS.
+- Serveur refusé : HTTP 401 (jeton erroné ou révoqué), 403 avec un message (adresse non autorisée pour ce jeton,
+  ou intégration désactivée), 403 sans message (envoi ailleurs qu'à `POST <adresse du Mini-SOC>/api/ingest/trivy`) ;
+  aucune réponse : pare-feu de la VM (liste Serveurs Trivy) ou du XGS.
 - Source silencieuse : aucun rapport depuis 8 jours (agent arrêté, cron supprimé, base des failles injoignable).

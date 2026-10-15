@@ -146,6 +146,10 @@ services:
       MINISOC_TLS: ${MINISOC_TLS:-internal}
       # Adresse IP de l'interface : https://<IP> renvoie vers MINISOC_HOSTNAME
       MINISOC_IP: ${WEB_BIND:-127.0.0.1}
+      # Serveurs Trivy limités à l'envoi de leurs rapports, sauf adresses d'administration ou d'écran mural
+      # (deploy/caddy/Caddyfile) : listes du pare-feu recopiées dans .env par sudo minisoc-setup
+      MINISOC_TRIVY_IPS: ${MINISOC_TRIVY_IPS:-}
+      MINISOC_WEB_IPS: ${MINISOC_WEB_IPS:-}
     ports:
       - "${WEB_BIND:-0.0.0.0}:443:443"
       - "${WEB_BIND:-0.0.0.0}:80:80"

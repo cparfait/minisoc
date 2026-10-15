@@ -213,6 +213,10 @@ pg_major_migration
 
 step "redémarrage"
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)  # contrôle de la réception syslog : journaux de l'API depuis ce moment
+# Listes du pare-feu reprises par l'interface web (serveurs Trivy limités à l'envoi de leurs rapports), recopiées dans
+# .env depuis /etc/minisoc/firewall.conf : aussi pour une VM paramétrée avant que l'interface web ne les lise
+/usr/local/sbin/minisoc-setup --acces-web \
+  || echo "${Y}Accès web des serveurs Trivy non recopié : sudo minisoc-setup --acces-web${N}"
 docker compose up -d --remove-orphans
 pending=0
 for _ in $(seq 30); do

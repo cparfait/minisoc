@@ -410,12 +410,14 @@ Les deux sont générés par un seul script, à partir d'un seul fichier d'adres
 `/etc/minisoc/firewall.conf` (adresses ou plages CIDR, séparées par des espaces) :
 
 ```sh
-# Pare-feu du Mini-SOC : adresses autorisées. Après modification : sudo systemctl restart minisoc-firewall
+# Pare-feu du Mini-SOC : adresses autorisées.
+# Après modification : sudo systemctl restart minisoc-firewall && sudo minisoc-setup --acces-web
 LAN_IF="ens192"                         # interface réseau de la VM (VMXNET3 sous vSphere ; commande : ip -br link)
 
 # --- Entrant ---
 ADMINS="192.168.10.21 192.168.10.22"    # postes DSI : SSH et interface web
 WALL="192.168.10.40"                    # écran mural : interface web
+TRIVY="192.168.10.70"                   # serveurs équipés de l'agent Trivy : 443, envoi des rapports seul (§ 6.5)
 SYSLOG_TCP="192.168.10.1"               # syslog 514/TCP en clair : XGS, Vectra (Varonis seulement s'il est installé sur site)
 SYSLOG_TLS="192.168.10.2 192.168.10.3"  # syslog 6514/TCP chiffré : contrôleurs de domaine, serveurs de fichiers
 SYSLOG_UDP=""                           # seulement pour un équipement qui ne sait pas envoyer en TCP
@@ -439,10 +441,13 @@ sudo nano /etc/minisoc/firewall.conf
 
 Le script est dans le dépôt : [`deploy/firewall/minisoc-firewall`](../deploy/firewall/minisoc-firewall). Il crée
 la table nftables `inet minisoc_host` (la machine : SSH depuis `ADMINS` et `BACKUP_SERVER`, sorties DNS, NTP et
-Internet 80/443) et remplit la chaîne `DOCKER-USER` (les conteneurs : 443 depuis `ADMINS` et `WALL`, 80 depuis
-`ADMINS`, syslog depuis les sources déclarées ; vers le LAN seulement `DNS` et `LAN_OUT`, vers Internet seulement
-`INTERNET_PORTS`). Tout refus est journalisé (`minisoc-hote-refus-*`, `minisoc-docker-refus-*`). Il refuse de
-s'appliquer si `LAN_IF`, `ADMINS`, `DNS` ou `NTP` est vide, ce qui fermerait l'accès.
+Internet 80/443) et remplit la chaîne `DOCKER-USER` (les conteneurs : 443 depuis `ADMINS`, `WALL` et `TRIVY`, 80
+depuis `ADMINS`, syslog depuis les sources déclarées ; vers le LAN seulement `DNS` et `LAN_OUT`, vers Internet
+seulement `INTERNET_PORTS`). Tout refus est journalisé (`minisoc-hote-refus-*`, `minisoc-docker-refus-*`). Il refuse
+de s'appliquer si `LAN_IF`, `ADMINS`, `DNS` ou `NTP` est vide, ce qui fermerait l'accès.
+
+Le pare-feu ne voit que des adresses et des ports, pas les pages demandées (le trafic web est chiffré) : le tri par
+chemin des serveurs `TRIVY` est fait par l'interface web (§ 6.5).
 
 ```bash
 sudo install -m 750 deploy/firewall/minisoc-firewall /usr/local/sbin/minisoc-firewall
@@ -494,6 +499,23 @@ par nom de domaine se fait sur le XGS, par lequel passe toute la sortie Internet
 
 Si la VM est dans le même segment que les postes, le XGS ne voit pas le trafic LAN ↔ VM : seul le pare-feu local
 le filtre. C'est l'intérêt du VLAN dédié (§ 0).
+
+### 6.5 Serveurs Trivy : envoi des rapports seul
+
+Les serveurs de la liste `TRIVY` (`sudo minisoc-setup` › Entrants › Serveurs Trivy) ont le 443 ouvert comme les
+postes DSI. L'interface web (Caddy, [`deploy/caddy/Caddyfile`](../deploy/caddy/Caddyfile)) ne leur laisse que
+`POST /api/ingest/trivy` : la page de connexion, l'interface et le reste de l'API leur répondent **403**. Une adresse
+qui figure aussi dans `ADMINS` ou `WALL` garde l'accès complet (une plage `TRIVY` peut donc contenir un poste DSI).
+Le tri porte sur l'adresse de la connexion elle-même, jamais sur un en-tête (`X-Forwarded-For`) que le serveur
+pourrait écrire.
+
+Caddy reçoit les listes par `/opt/minisoc/.env` : `MINISOC_TRIVY_IPS` (= `TRIVY`) et `MINISOC_WEB_IPS`
+(= `ADMINS` et `WALL`). « Appliquer » dans `sudo minisoc-setup`, le retour arrière automatique et `minisoc-update`
+les recopient depuis `firewall.conf` et recréent le conteneur `web` si elles ont changé. Après une modification à
+la main de `firewall.conf` : `sudo minisoc-setup --acces-web`.
+
+Le jeton de chaque serveur garde ses propres contrôles (Intégrations › Trivy : révocation, « Adresses
+autorisées »).
 
 ---
 
@@ -635,7 +657,7 @@ jour et à la demande depuis Intégrations › Trivy (`minisoc-trivy.path`). Il 
 exportée puis lue par un conteneur Trivy jetable, sans socket Docker ni privilège. Rapport et état dans
 `/var/lib/minisoc/trivy` (lu par le worker), journal : `sudo journalctl -u minisoc-trivy`. Serveurs équipés de
 l'agent : jeton par serveur dans Intégrations › Trivy, adresse dans `sudo minisoc-setup` › Entrants › Serveurs
-Trivy (variable `TRIVY` du pare-feu, 443/TCP).
+Trivy (variable `TRIVY` du pare-feu, 443/TCP, limité à l'envoi des rapports : § 6.5).
 
 ---
 
@@ -782,6 +804,8 @@ Depuis un **poste DSI autorisé** :
 - [ ] `ssh adminsoc@192.168.10.50` fonctionne ; `ssh -o PubkeyAuthentication=no adminsoc@…` est refusé
 - [ ] `https://minisoc.mairie.local` : certificat reconnu, connexion avec double authentification
 - [ ] Écran mural : affichage OK ; depuis un autre poste, l'adresse ne répond pas
+- [ ] Serveur Trivy : `curl -sk -o /dev/null -w "%{http_code}" https://minisoc.mairie.local/` lancé depuis ce serveur
+      répond `403` ; son agent envoie bien son rapport (`sudo minisoc-trivy-agent run`)
 
 Sur la VM :
 

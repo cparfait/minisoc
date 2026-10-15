@@ -262,7 +262,8 @@ export function TrivyAdmin() {
       <h3>Serveurs (agent)</h3>
       <p className="muted small">
         Un jeton par serveur, affiché une seule fois. Installer l'agent sur le serveur avec ce jeton, et l'autoriser
-        en 443 vers la VM (sudo minisoc-setup › Entrants › Serveurs Trivy).
+        en 443 vers la VM (sudo minisoc-setup › Entrants › Serveurs Trivy) : cette liste ne donne que l'envoi des
+        rapports, l'interface web et le reste de l'API leur sont refusés.
       </p>
       {created && (
         <div className="token-once">
