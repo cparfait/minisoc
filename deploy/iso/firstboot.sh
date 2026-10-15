@@ -56,7 +56,7 @@ printf '\e[1;32m'; cat /usr/local/share/minisoc/banner.txt; printf '\e[0m'
 step "accès Internet"
 NEEDED="http://deb.debian.org http://security.debian.org https://registry-1.docker.io https://auth.docker.io
 https://deb.debian.org https://dl-cdn.alpinelinux.org https://ghcr.io https://pkg-containers.githubusercontent.com https://registry.npmjs.org https://pypi.org
-https://files.pythonhosted.org"
+https://files.pythonhosted.org https://proxy.golang.org https://sum.golang.org"
 command -v docker >/dev/null || NEEDED="$NEEDED https://download.docker.com"
 if [ -n "${DOCKER_MIRROR:-}" ]; then
   NEEDED="$NEEDED $DOCKER_MIRROR"     # les images passent par le miroir : CDN de Docker Hub inutiles

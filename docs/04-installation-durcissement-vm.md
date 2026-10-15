@@ -127,7 +127,8 @@ ses serveurs de temps.
 Accès Internet nécessaires pendant l'installation (en 80 et 443) : `deb.debian.org`, `security.debian.org`,
 `download.docker.com`, `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com`,
 `production.cloudfront.docker.com`, `ghcr.io`, `dl-cdn.alpinelinux.org` (correctifs Alpine des images, en 443),
-`registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`. Les conteneurs ne sortent qu'en 443 : `deb.debian.org`
+`registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`, `proxy.golang.org` et `sum.golang.org` (Caddy
+recompilé avec le dernier Go, en 443). Les conteneurs ne sortent qu'en 443 : `deb.debian.org`
 doit donc aussi l'être en HTTPS (correctifs Debian de l'image de l'application). Sans accès direct, renseigner `HTTP_PROXY` dans
 `vm.conf`. Si le réseau coupe CloudFront (`connection reset by peer` sur `production.cloudfront.docker.com`),
 renseigner `DOCKER_MIRROR='https://mirror.gcr.io'` (miroir officiel de Docker Hub chez Google) et autoriser
