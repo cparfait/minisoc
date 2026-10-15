@@ -32,5 +32,11 @@ grep -qs 'MODE INITIAL' /etc/minisoc/firewall.conf \
   || add "SSH par mot de passe (aucune clé)" "sudo minisoc-setup : K (clés SSH) puis A (appliquer)"
 [ -e /etc/minisoc/coffre-fort.fait ] \
   || add "Secrets à copier dans le coffre-fort de la DSI" "sudo minisoc-setup : F (fichiers et secrets)"
+# Ancienne base PostgreSQL gardée après une montée de version majeure (minisoc-update) : à supprimer après vérification
+current=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' minisoc-postgres-1 2>/dev/null)
+old=""
+for v in $(docker volume ls -q --filter name=minisoc_pgdata 2>/dev/null); do [ "$v" = "$current" ] || old="$old $v"; done
+[ -z "$old" ] || add "Ancienne base PostgreSQL conservée après la mise à jour :$old" \
+  "une fois l'application vérifiée : sudo docker volume rm$old"
 if [ -n "$todo" ]; then printf "\n  ${Y}À faire :${N}\n$todo"; fi
 printf "\n  ${D}Paramétrage :${N} ${G}sudo minisoc-setup${N}\n\n"

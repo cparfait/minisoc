@@ -4,8 +4,20 @@
 #   docker run --rm -v "${PWD}:/work" -w /work debian:13-slim sh deploy/iso/build-iso.sh
 # Entrées : deploy/iso/vm.conf (copie de vm.conf.example) et, si présent, deploy/iso/authorized_keys.
 # Sortie : build/iso/minisoc-debian-<version>-amd64-auto-<date>-<heure>-<commit>.iso (« -modifie » si des
-# changements ne sont pas commités) ; les ISO précédentes sont effacées une fois la nouvelle prête.
+# changements ne sont pas commités) ; les ISO précédentes sont effacées une fois la nouvelle prête. Dans tous les cas,
+# le paquet de mise à jour des VM installées : build/iso/minisoc-update-<date>-<heure>-<commit>.tar.gz (+ .sha256).
+#
+# Paquet de mise à jour seul, sans toucher à l'ISO (ni téléchargement Debian, ni xorriso, ni vm.conf, ni clés SSH ;
+# les ISO existantes sont conservées) : MINISOC_SEULEMENT_MAJ=1 ou l'argument --mise-a-jour.
+#   docker run --rm -e MINISOC_SEULEMENT_MAJ=1 -v "${PWD}:/work" -w /work debian:13-slim sh deploy/iso/build-iso.sh
 set -eu
+SEULEMENT_MAJ=${MINISOC_SEULEMENT_MAJ:-0}
+case "${1:-}" in
+  "") ;;
+  --mise-a-jour) SEULEMENT_MAJ=1 ;;
+  *) echo "Argument inconnu : $1 (seul --mise-a-jour est accepté)"; exit 1 ;;
+esac
+iso_aussi() { [ "$SEULEMENT_MAJ" != 1 ]; }
 HERE=deploy/iso
 OUT=${MINISOC_ISO_OUT:-build/iso}
 CACHE=build/iso/debian
@@ -15,47 +27,61 @@ KEYS=${MINISOC_AUTHORIZED_KEYS:-$HERE/authorized_keys}
 # Menu de démarrage : -1 = attendre Entrée (évite une réinstallation si la VM redémarre sur le CD).
 TIMEOUT=${MINISOC_ISO_TIMEOUT:--1}
 
-[ -f "$CONF" ] || { echo "Fichier $CONF absent : copier $HERE/vm.conf.example en $HERE/vm.conf"; exit 1; }
-. "./$CONF"
-
-if ! command -v xorriso >/dev/null || ! command -v curl >/dev/null || ! command -v git >/dev/null; then
-  apt-get update -qq && apt-get install -y -qq --no-install-recommends xorriso curl ca-certificates git >/dev/null
+if iso_aussi; then
+  [ -f "$CONF" ] || { echo "Fichier $CONF absent : copier $HERE/vm.conf.example en $HERE/vm.conf"; exit 1; }
+  . "./$CONF"
+  outils="xorriso curl git"
+else
+  echo "Paquet de mise à jour seul : l'ISO n'est ni téléchargée ni reconstruite"
+  outils="git"
 fi
+
+manque=""
+for o in $outils; do command -v "$o" >/dev/null || manque=1; done
+if [ -n "$manque" ]; then
+  apt-get update -qq && apt-get install -y -qq --no-install-recommends $outils ca-certificates >/dev/null
+fi
+mkdir -p "$OUT"
 
 # ---------- ISO officielle, vérifiée par son empreinte SHA-512 ----------
-mkdir -p "$CACHE" "$OUT"
-curl -fsSL "$MIRROR/SHA512SUMS" -o "$CACHE/SHA512SUMS"
-iso=$(awk '$2 ~ /^debian-[0-9.]+-amd64-netinst\.iso$/ {print $2}' "$CACHE/SHA512SUMS")
-[ -n "$iso" ] || { echo "ISO netinst introuvable dans SHA512SUMS"; exit 1; }
-if ! (cd "$CACHE" && grep " $iso\$" SHA512SUMS | sha512sum -c --status 2>/dev/null); then
-  echo "Téléchargement de $iso"
-  curl -fL --progress-bar "$MIRROR/$iso" -o "$CACHE/$iso"
-  (cd "$CACHE" && grep " $iso\$" SHA512SUMS | sha512sum -c)
+if iso_aussi; then
+  mkdir -p "$CACHE"
+  curl -fsSL "$MIRROR/SHA512SUMS" -o "$CACHE/SHA512SUMS"
+  iso=$(awk '$2 ~ /^debian-[0-9.]+-amd64-netinst\.iso$/ {print $2}' "$CACHE/SHA512SUMS")
+  [ -n "$iso" ] || { echo "ISO netinst introuvable dans SHA512SUMS"; exit 1; }
+  if ! (cd "$CACHE" && grep " $iso\$" SHA512SUMS | sha512sum -c --status 2>/dev/null); then
+    echo "Téléchargement de $iso"
+    curl -fL --progress-bar "$MIRROR/$iso" -o "$CACHE/$iso"
+    (cd "$CACHE" && grep " $iso\$" SHA512SUMS | sha512sum -c)
+  fi
+  version=$(echo "$iso" | sed 's/^debian-\([0-9.]*\)-.*/\1/')
 fi
-version=$(echo "$iso" | sed 's/^debian-\([0-9.]*\)-.*/\1/')
 
 # ---------- Fichiers ajoutés ----------
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/minisoc"
 
-{
-  echo "# Généré par build-iso.sh à partir de $CONF"
-  [ -z "$VM_HOSTNAME" ] || printf 'd-i netcfg/get_hostname string %s\nd-i netcfg/hostname string %s\n' "$VM_HOSTNAME" "$VM_HOSTNAME"
-  [ -z "$VM_DOMAIN" ] || printf 'd-i netcfg/get_domain string %s\n' "$VM_DOMAIN"
-  if [ -n "$VM_IP" ]; then
-    printf 'd-i netcfg/get_ipaddress string %s\n' "$VM_IP"
-    printf 'd-i netcfg/get_netmask string %s\n' "$VM_NETMASK"
-    printf 'd-i netcfg/get_gateway string %s\n' "$VM_GATEWAY"
-    printf 'd-i netcfg/get_nameservers string %s\n' "$VM_DNS"
-  fi
-  printf 'd-i mirror/http/proxy string %s\n' "$HTTP_PROXY"
-  [ -z "$ADMIN_PASSWORD_HASH" ] || printf 'd-i passwd/user-password-crypted password %s\n' "$ADMIN_PASSWORD_HASH"
-} > "$work/site.cfg"
+# Réglages du site (vm.conf) : propres à l'ISO, absents du paquet de mise à jour
+if iso_aussi; then
+  {
+    echo "# Généré par build-iso.sh à partir de $CONF"
+    [ -z "$VM_HOSTNAME" ] || printf 'd-i netcfg/get_hostname string %s\nd-i netcfg/hostname string %s\n' "$VM_HOSTNAME" "$VM_HOSTNAME"
+    [ -z "$VM_DOMAIN" ] || printf 'd-i netcfg/get_domain string %s\n' "$VM_DOMAIN"
+    if [ -n "$VM_IP" ]; then
+      printf 'd-i netcfg/get_ipaddress string %s\n' "$VM_IP"
+      printf 'd-i netcfg/get_netmask string %s\n' "$VM_NETMASK"
+      printf 'd-i netcfg/get_gateway string %s\n' "$VM_GATEWAY"
+      printf 'd-i netcfg/get_nameservers string %s\n' "$VM_DNS"
+    fi
+    printf 'd-i mirror/http/proxy string %s\n' "$HTTP_PROXY"
+    [ -z "$ADMIN_PASSWORD_HASH" ] || printf 'd-i passwd/user-password-crypted password %s\n' "$ADMIN_PASSWORD_HASH"
+  } > "$work/site.cfg"
 
-printf "VM_NTP='%s'\nHTTP_PROXY='%s'\nDOCKER_POOL='%s'\nDOCKER_MIRROR='%s'\n" "$VM_NTP" "$HTTP_PROXY" \
-  "${DOCKER_POOL:-10.255.0.0/16}" "${DOCKER_MIRROR:-}" \
-  > "$work/minisoc/site.env"
+  printf "VM_NTP='%s'\nHTTP_PROXY='%s'\nDOCKER_POOL='%s'\nDOCKER_MIRROR='%s'\n" "$VM_NTP" "$HTTP_PROXY" \
+    "${DOCKER_POOL:-10.255.0.0/16}" "${DOCKER_MIRROR:-}" \
+    > "$work/minisoc/site.env"
+fi
 cp "$HERE/choose-disk.sh" "$HERE/late.sh" "$HERE/firstboot.sh" "$HERE/minisoc-firstboot.service" \
   "$HERE/minisoc-sshd-config.sh" "$HERE/minisoc-setup.sh" "$HERE/banner.txt" "$HERE/minisoc-motd" \
   "$HERE/minisoc-update.sh" deploy/firewall/minisoc-firewall deploy/firewall/minisoc-firewall.service "$work/minisoc/"
@@ -70,7 +96,9 @@ echo "$stamp" > "$work/minisoc/VERSION"
 git ls-files -co --exclude-standard | grep -v -e '^build/' -e '^deploy/iso/' \
   | tar -T - -czf "$work/minisoc/minisoc.tar.gz"
 echo "Application : $(tar -tzf "$work/minisoc/minisoc.tar.gz" | wc -l) fichiers ($(du -h "$work/minisoc/minisoc.tar.gz" | cut -f1))"
-if [ -s "$KEYS" ]; then
+if ! iso_aussi; then
+  :  # clés SSH : posées à l'installation par l'ISO, pas par le paquet de mise à jour
+elif [ -s "$KEYS" ]; then
   grep -E '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9]+|sk-[a-z0-9@.-]+) ' "$KEYS" > "$work/minisoc/authorized_keys"
   echo "Clés SSH : $(wc -l < "$work/minisoc/authorized_keys")"
 else
@@ -78,8 +106,11 @@ else
 fi
 # Fins de ligne Windows éventuelles (fichiers édités sous Windows)
 for f in "$work"/site.cfg "$work"/minisoc/*; do
+  [ -f "$f" ] || continue
   case "$f" in *.tar.gz) ;; *) sed -i 's/\r$//' "$f" ;; esac
 done
+
+if iso_aussi; then  # ISO : menus de démarrage et remasterisation (sautés avec --mise-a-jour)
 sed 's/\r$//' "$HERE/preseed.cfg" > "$work/preseed.cfg"
 
 # Sans auto=true : la langue et le clavier (AZERTY) sont appliqués dès le début, avant le réseau et le mot de passe.
@@ -132,6 +163,7 @@ for old in "$OUT"/minisoc-debian-*.iso; do
 done
 echo "ISO prête : $target ($(du -h "$target" | cut -f1))"
 echo "SHA-256 : $(cut -d' ' -f1 "$target.sha256")"
+fi  # fin de l'ISO (bloc non indenté : les fins de texte EOF restent en début de ligne)
 
 # ---------- Paquet de mise à jour des VM déjà installées (mêmes fichiers, sans les réglages du site) ----------
 upd="$work/update/minisoc-update"
@@ -147,4 +179,5 @@ for old in "$OUT"/minisoc-update-*.tar.gz; do
   [ "$old" = "$bundle" ] || { rm -f "$old" "$old.sha256"; echo "Ancien paquet de mise à jour effacé : ${old##*/}"; }
 done
 echo "Mise à jour prête : $bundle ($(du -h "$bundle" | cut -f1))"
+echo "SHA-256 : $(cut -d' ' -f1 "$bundle.sha256")"
 echo "  Sur une VM installée : scp ${bundle##*/} adminsoc@<IP>:/tmp/ puis sudo minisoc-update /tmp/${bundle##*/}"

@@ -64,7 +64,8 @@ CATALOG: tuple[Integration, ...] = (
                     placeholder="https://cloudgz.gravityzone.bitdefender.com/api",
                     help="Mon compte › Control Center API › Access URL."),
             FieldUI("bitdefender_read_api_key", "Clé d'API de lecture", "secret", required=True,
-                    help="API cochées : Incidents et Quarantaine seulement. Distincte de la clé d'isolation."),
+                    help="API cochées : Incidents, Quarantaine et Réseau (liste des postes protégés, règle UC-58) "
+                    "seulement. Distincte de la clé d'isolation."),
             FieldUI("bitdefender_history_days", "Historique relu au raccordement (jours, 0 = tout)", "int",
                     help="365 par défaut ; rattrapé par tranches de 30 jours, une par minute."),
             FieldUI("bitdefender_sync_status", "Clôturer ici ce qui est traité dans GravityZone", "bool",
@@ -73,8 +74,9 @@ CATALOG: tuple[Integration, ...] = (
         ),
         test="gravityzone",
         setup=(
-            "1. GravityZone › Mon compte › **Clés API** › Ajouter : cocher **Incidents API** et **Quarantine API** "
-            "uniquement. Copier la clé et l'**Access URL** (section Control Center API).\n"
+            "1. GravityZone › Mon compte › **Clés API** › Ajouter : cocher **Incidents API**, **Quarantine API** et "
+            "**Network API** (machines sans antivirus, UC-58) uniquement. Copier la clé et l'**Access URL** "
+            "(section Control Center API).\n"
             "2. Renseigner l'adresse d'accès et la clé ici, Enregistrer, puis Tester.\n"
             "3. Le Mini-SOC interroge l'API chaque minute (incidents modifiés, fichiers mis en quarantaine) : aucune "
             "publication sur Internet, aucun envoi « Event Push »."
@@ -96,7 +98,8 @@ CATALOG: tuple[Integration, ...] = (
                     "trace (statut, auteur, date) dans son historique. Rien n'est supprimé."),
         ),
         test="harfanglab",
-        setup="Créer un compte d'API **en lecture seule** dans la console HarfangLab, puis saisir son jeton.",
+        setup="Créer un compte d'API **en lecture seule** dans la console HarfangLab (lecture des alertes et de la "
+              "liste des agents : machines sans EDR, UC-59), puis saisir son jeton.",
     ),
     Integration(
         id="crowdsec", name="CrowdSec", vendor="CrowdSec", category="Renseignement / IPS",
@@ -315,6 +318,26 @@ CATALOG: tuple[Integration, ...] = (
             "lance aucun scan et ne modifie rien dans Cyberwatch.\n"
             "4. Le croisement avec les failles activement exploitées demande la veille CISA KEV "
             "(Intégrations › Veille)."
+        ),
+    ),
+    Integration(
+        id="trivy", name="Trivy (images Docker et serveurs)", vendor="Aqua Security (open source)",
+        category="Vulnérabilités", modes=("analyse locale", "agent HTTPS"), enable_key="src_trivy_enabled",
+        modules=("trivy",), silence_minutes=8 * 24 * 60,
+        description="Composants vulnérables des images Docker du Mini-SOC et de la VM (analyse hebdomadaire, après "
+                    "chaque mise à jour ou à la demande), et des serveurs équipés de l'agent : faille activement "
+                    "exploitée présente (UC-52), faille critique corrigeable (UC-53) ; détail sur la page "
+                    "Vulnérabilités, à côté de Cyberwatch.",
+        fields=(
+            FieldUI("trivy_alert_high", "Alerter aussi sur les failles hautes corrigeables", "bool",
+                    help="Par défaut, seules les failles critiques corrigeables et celles du catalogue CISA KEV "
+                    "donnent une alerte ; toutes restent visibles sur la page Vulnérabilités."),
+        ),
+        setup=(
+            "1. Images du Mini-SOC : rien à faire, l'analyse tourne chaque semaine sur la VM (service "
+            "minisoc-trivy) ; bouton « Analyser maintenant » ci-dessous.\n"
+            "2. Serveurs : créer un jeton par serveur (onglet Configuration), installer l'agent avec ce jeton et "
+            "autoriser le serveur en 443 vers la VM (sudo minisoc-setup › Entrants › Serveurs Trivy)."
         ),
     ),
     Integration(

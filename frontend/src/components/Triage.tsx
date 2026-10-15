@@ -1,6 +1,6 @@
 import { CircleAlert, CircleCheck, Copy, ExternalLink, Info, SearchCheck } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { formatDate } from "../labels";
+import { formatDate, moduleLabel } from "../labels";
 import type { EventRow } from "../types";
 import { Card } from "./ui";
 
@@ -154,8 +154,74 @@ function Hash({ value }: { value: string }) {
   );
 }
 
-export default function Triage({ events }: { events: EventRow[] }) {
+const onHost = (host: string | null) => (e: EventRow) => !host || (e.host_name || "").toLowerCase() === host.toLowerCase();
+const isToolAlert = (e: EventRow) => {
+  if ((e.module !== "bitdefender" && e.module !== "varonis") || !e.raw) return false;
+  const raw = parse(e.raw);
+  return raw !== null && (raw.source === "api" || raw.type === "alert");
+};
+
+/** Machine choisie dans « Machines concernées » : rappel et retour à l'ensemble de l'alerte. */
+function HostBar({ host, onReset }: { host: string | null; onReset?: () => void }) {
+  if (!host) return null;
+  return (
+    <p className="triage-host">
+      Détections de <strong className="mono">{host}</strong>
+      {onReset && (
+        <button type="button" className="link-button" onClick={onReset}>
+          Toutes les machines
+        </button>
+      )}
+    </p>
+  );
+}
+
+/** Machine sans détail d'outil (HarfangLab, GravityZone, Varonis) : ses détections telles que reçues. */
+function HostDetections({ events, host, onReset }: { events: EventRow[]; host: string; onReset?: () => void }) {
+  const mine = [...events].filter(onHost(host)).sort((a, b) => b.ts.localeCompare(a.ts));
+  return (
+    <Card title="Levée de doute" icon={SearchCheck} className="triage-card">
+      <HostBar host={host} onReset={onReset} />
+      {mine.length === 0 ? (
+        <p className="muted">Aucun événement de cette machine dans l'alerte (machine citée par l'inventaire ou la règle).</p>
+      ) : (
+        <table className="triage-occurrences">
+          <tbody>
+            {mine.slice(0, 15).map((e) => (
+              <tr key={e.event_id}>
+                <td className="nowrap">{formatDate(e.ts)}</td>
+                <td className="nowrap">{moduleLabel(e.module)}</td>
+                <td>
+                  <strong>{e.rule_name || e.action || "—"}</strong>
+                  {e.message && e.message !== e.rule_name && <div className="small muted">{e.message.slice(0, 300)}</div>}
+                  {(e.user_name || e.source_ip) && (
+                    <div className="small muted">
+                      {[e.user_name && `compte ${e.user_name}`, e.source_ip && `depuis ${e.source_ip}`].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
+                </td>
+                <td className="nowrap">
+                  {e.reference && /^https?:\/\//.test(e.reference) && (
+                    <a href={e.reference} target="_blank" rel="noopener noreferrer" className="triage-ref">
+                      Ouvrir dans l'outil <ExternalLink size={12} />
+                    </a>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+export default function Triage({ events, host = null, onReset }: { events: EventRow[]; host?: string | null; onReset?: () => void }) {
+  if (host && !events.filter(onHost(host)).some((e) => (e.module === "harfanglab" && e.raw) || isToolAlert(e))) {
+    return <HostDetections events={events} host={host} onReset={onReset} />;
+  }
   const parsed = events
+    .filter(onHost(host))
     .filter((e) => e.module === "harfanglab" && e.raw)
     .map((e) => ({ event: e, raw: parse(e.raw) }))
     .filter((x): x is { event: EventRow; raw: Raw } => x.raw !== null)
@@ -174,6 +240,7 @@ export default function Triage({ events }: { events: EventRow[] }) {
 
   return (
     <Card title="Levée de doute" icon={SearchCheck} className="triage-card">
+      <HostBar host={host} onReset={onReset} />
       {list.length > 0 && (
         <ul className="triage-hints">
           {list.map((h) => (
@@ -314,8 +381,9 @@ const GZ_STATUS: Record<string, string> = {
 };
 
 /** Levée de doute pour les alertes lues par API (GravityZone, Varonis SaaS) : l'essentiel de l'alerte d'origine. */
-export function ToolTriage({ events }: { events: EventRow[] }) {
+export function ToolTriage({ events, host = null }: { events: EventRow[]; host?: string | null }) {
   const latest = events
+    .filter(onHost(host))
     .filter((e) => (e.module === "bitdefender" || e.module === "varonis") && e.raw)
     .map((e) => ({ event: e, raw: parse(e.raw) }))
     .filter((x): x is { event: EventRow; raw: Raw } => x.raw !== null && (x.raw.source === "api" || x.raw.type === "alert"))

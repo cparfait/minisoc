@@ -1,0 +1,10 @@
+[Unit]
+Description=Mini-SOC : analyse Trivy demandée depuis l'interface (Intégrations › Trivy)
+
+[Path]
+# Déposé par le worker (bouton « Analyser maintenant »), effacé par l'analyse à son démarrage
+PathExists=/var/lib/minisoc/trivy/scan-now
+Unit=minisoc-trivy.service
+
+[Install]
+WantedBy=paths.target

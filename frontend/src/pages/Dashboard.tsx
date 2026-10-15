@@ -11,6 +11,7 @@ import { DashboardCustomizer, useDashboardLayout, type WidgetDef, type WidgetSet
 import ExposureTop from "../components/Exposure";
 import { PriorityPill } from "../components/Priority";
 import { RiskTop } from "../components/Risk";
+import M365Activity from "../components/M365Activity";
 import VpnActivity from "../components/VpnActivity";
 import CyberwatchExposure from "../components/CyberwatchExposure";
 import ParcExposure from "../components/ParcExposure";
@@ -56,6 +57,13 @@ const WIDGETS: WidgetDef[] = [
     description: "Échecs et connexions depuis l'étranger, sur 24 h.",
     zone: "right",
     options: [lines([6, 12, 20], 12)],
+  },
+  {
+    id: "m365",
+    title: "Comptes Microsoft 365",
+    description: "Connexions, échecs par motif, comptes visés, connexions depuis l'étranger et changements sensibles, sur 24 h.",
+    zone: "right",
+    options: [lines([5, 10, 20], 10)],
   },
   { id: "top_ips", title: "Adresses les plus actives en échec", description: "Classement sur 24 h.", zone: "right", options: [lines([5, 10], 10)] },
   { id: "exposure", title: "À corriger en priorité", description: "Machines les plus exposées (vulnérabilités, alertes, criticité).", zone: "right", options: [lines([5, 8, 15], 8)] },
@@ -126,13 +134,28 @@ export default function Dashboard() {
           <Card title="État des sources" icon={Server}>
             {o && o.sources.length ? (
               <div className="sources-strip">
-                {o.sources.map((s) => (
-                  <Link to="/integrations" key={s.module} className={`source-pill source-${s.status}`}>
-                    <i />
-                    {moduleLabel(s.module)}
-                    <small>{timeAgo(s.last_seen)}</small>
-                  </Link>
-                ))}
+                {[...o.sources]
+                  .sort((a, b) => Number(b.status === "silent") - Number(a.status === "silent"))
+                  .map((s) => (
+                    <Link
+                      to="/integrations"
+                      key={s.module}
+                      className={`source-pill source-${s.status}`}
+                      title={
+                        s.status === "silent"
+                          ? `Plus aucune donnée depuis ${timeAgo(s.last_seen).replace("il y a ", "")} (seuil ${s.max_silence_minutes} min) : vérifier l'envoi`
+                          : s.status === "unknown"
+                            ? "Aucune donnée reçue depuis l'activation"
+                            : `Dernière donnée ${timeAgo(s.last_seen)}`
+                      }
+                    >
+                      <i />
+                      {moduleLabel(s.module)}
+                      <small>
+                        {s.status === "silent" ? `muette · ${timeAgo(s.last_seen)}` : s.status === "unknown" ? "en attente" : timeAgo(s.last_seen)}
+                      </small>
+                    </Link>
+                  ))}
               </div>
             ) : (
               <Empty>Aucune source n'a encore envoyé d'événement.</Empty>
@@ -201,6 +224,8 @@ export default function Dashboard() {
         return <Card title="Alertes créées (30 jours)" icon={TrendingUp}>{o && <TrendChart trend={o.trend} />}</Card>;
       case "vpn":
         return <VpnActivity rows={n} />;
+      case "m365":
+        return <M365Activity rows={n} />;
       case "top_ips":
         return (
           <Card title="IP les plus actives en échec d'authentification (24 h)" icon={Crosshair}>

@@ -55,7 +55,7 @@ printf '\e[1;32m'; cat /usr/local/share/minisoc/banner.txt; printf '\e[0m'
 # Tant qu'un serveur est injoignable, l'installation attend et affiche ce qu'il faut ouvrir (sur le firewall ou le proxy).
 step "accès Internet"
 NEEDED="http://deb.debian.org http://security.debian.org https://registry-1.docker.io https://auth.docker.io
-https://ghcr.io https://pkg-containers.githubusercontent.com https://registry.npmjs.org https://pypi.org
+https://deb.debian.org https://dl-cdn.alpinelinux.org https://ghcr.io https://pkg-containers.githubusercontent.com https://registry.npmjs.org https://pypi.org
 https://files.pythonhosted.org"
 command -v docker >/dev/null || NEEDED="$NEEDED https://download.docker.com"
 if [ -n "${DOCKER_MIRROR:-}" ]; then
@@ -96,7 +96,7 @@ done
 # ---------- Paquets complémentaires ----------
 step "paquets"
 dpkg --configure -a          # reprise d'une installation interrompue (coupure pendant un premier démarrage)
-net $APT install fail2ban python3-systemd libpam-pwquality apparmor apparmor-utils whiptail
+net $APT install fail2ban python3-systemd libpam-pwquality apparmor apparmor-utils dialog
 
 # ---------- Disque de données sur /var/lib/docker (avant Docker) ----------
 step "disque de données"
@@ -333,10 +333,12 @@ setenv MINISOC_PUBLIC_URL "https://$fqdn"
 setenv WEB_BIND "$vm_ip"
 setenv SYSLOG_BIND "$vm_ip"
 setenv COMPOSE_PROFILES syslog-tls
+setenv TRIVY_DIR /var/lib/minisoc/trivy
+install -d -m 0750 /var/lib/minisoc/trivy
 [ -f data/syslog-tls/server.crt ] || sh scripts/syslog_cert.sh "$fqdn" "$vm_ip"
 if [ "$APP_OK" = 1 ]; then
   net docker compose pull --ignore-buildable
-  net docker compose build
+  net docker compose --profile outils build --pull
   docker compose up -d
   for _ in $(seq 60); do
     pending=$(docker compose ps --format '{{.Service}} {{.Health}}' | awk '$2 != "" && $2 != "healthy"' | wc -l)
@@ -361,6 +363,7 @@ LAN_IF="$iface"
 # --- Entrant ---
 ADMINS="$PRIVATE"
 WALL=""
+TRIVY=""
 SYSLOG_TCP="$PRIVATE"
 SYSLOG_TLS="$PRIVATE"
 SYSLOG_UDP=""
@@ -395,6 +398,16 @@ cat > /etc/cron.d/minisoc-backup <<'EOF'
 EOF
 chmod 644 /etc/cron.d/minisoc-backup
 warn "phrase de passe des sauvegardes (/etc/minisoc/backup.pass) et clé maître (MINISOC_MASTER_KEY de /opt/minisoc/.env) à copier dans le coffre-fort de la DSI"
+
+# ---------- Analyse Trivy de la VM (deploy/trivy) : chaque semaine, après les mises à jour, à la demande ----------
+install -m 0750 /opt/minisoc/deploy/trivy/minisoc-trivy.sh /usr/local/sbin/minisoc-trivy
+for u in service timer path; do install -m 0644 "/opt/minisoc/deploy/trivy/minisoc-trivy.$u" /etc/systemd/system/; done
+systemctl daemon-reload
+systemctl enable minisoc-trivy.timer minisoc-trivy.path
+if [ "$APP_OK" = 1 ]; then
+  systemctl start minisoc-trivy.timer minisoc-trivy.path
+  systemctl start --no-block minisoc-trivy.service   # première analyse, en tâche de fond
+fi
 
 # ---------- Console de paramétrage et écran d'accueil de la console vSphere ----------
 install -m 0750 "$SRC/minisoc-setup.sh" /usr/local/sbin/minisoc-setup

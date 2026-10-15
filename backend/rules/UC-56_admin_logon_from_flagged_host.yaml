@@ -1,0 +1,28 @@
+id: UC-56
+name: Compte administrateur utilisé sur une machine signalée par l'EDR
+type: sequence
+severity: critical
+description: >
+  HarfangLab ou Bitdefender a levé une alerte grave sur une machine, puis un compte administrateur s'y est connecté
+  (ou s'est connecté depuis elle) dans les 3 jours. Un attaquant présent sur la machine peut récupérer les
+  identifiants de l'administrateur (mémoire, jetons) et rebondir vers les serveurs : vérifier que la machine a été
+  nettoyée avant la connexion, sinon changer le mot de passe du compte et examiner ses connexions suivantes.
+sequence:
+  first:
+    event.kind: alert
+    event.module: [harfanglab, bitdefender]
+    event.severity: {gte: 3}
+  min_count: 1
+  within: 72h
+  then:
+    event.module: windows
+    event.category: authentication
+    event.action: logon
+    event.outcome: success
+    user.roles: {contains: admin}
+  join_on: host.name
+window: 15m
+title: "Compte administrateur utilisé sur {host.name}, machine signalée par l'EDR"
+dedup_window: 24h
+mitre: [T1078.002, T1003, T1021]
+playbook: playbooks/sensitive-accounts.md

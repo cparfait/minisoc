@@ -18,6 +18,12 @@ RansomGuard). Chaque alerte garde un lien direct vers la console pour la traiter
    - **Vérifier le certificat** : coché (décocher seulement pour une console interne à certificat auto-signé).
 4. **Enregistrer**, puis **Tester** : le test indique le nombre d'alertes accessibles.
 
+Le rôle en lecture seule doit aussi pouvoir lire la **liste des agents** (Endpoints › Agents) : chaque heure, le
+Mini-SOC signale les machines en service (relevé NinjaOne de moins de 7 jours) sans agent HarfangLab, ou dont l'agent
+est muet depuis plus de 7 jours (règle UC-59 « Pas d'EDR sur … », après 24 heures de constat, close d'elle-même quand
+l'agent revient). Les adresses IP des agents servent aussi à reconnaître une machine que Vectra ne connaît que par
+son adresse. État : page **Veille** › Couverture antivirus et EDR.
+
 ## Vérifier
 - Les alertes des dernières 24 h sont importées au premier passage ; Mini-SOC › **Alertes**, source HarfangLab.
 - Sur une alerte : bouton « Gérer dans HarfangLab ↗ » qui ouvre l'alerte dans la console.

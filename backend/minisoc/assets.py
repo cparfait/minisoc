@@ -26,6 +26,7 @@ from minisoc.accounts import ad_configured
 from minisoc.accounts import normalize as normalize_account
 from minisoc.connectors.cyberwatch import STATE_KEY as CYBERWATCH_KEY
 from minisoc.connectors.ninjaone import POSTURE_KEY
+from minisoc.identity import base_host_key, host_key, user_key  # noqa: F401 - host_key : importé d'ici par d'autres modules
 from minisoc.models import CRITICALITIES, OPEN_STATUSES, Alert, Asset
 
 log = logging.getLogger(__name__)
@@ -37,13 +38,8 @@ SERVER_NAME = re.compile(r"^(srv|svr|serveur|dc|ad|fs|sql|web|app|mail|exch)[-_0
 CACHE_SECONDS = 60
 
 
-def host_key(name: str) -> str:
-    """« PTB-00100.mairie.local » → « ptb-00100 »."""
-    return (name or "").strip().lower().split(".")[0]
-
-
 def key_for(kind: str, name: str) -> str:
-    return host_key(name) if kind == "host" else normalize_account(name)
+    return host_key(name) if kind == "host" else user_key(name)
 
 
 @dataclass
@@ -76,10 +72,11 @@ class AssetIndex:
         return self
 
     def host(self, name: str) -> AssetInfo | None:
-        return self.items.get(("host", host_key(name)))
+        # Adresse IP d'une machine connue : sa fiche ; à défaut, une fiche ouverte au nom de l'adresse
+        return self.items.get(("host", host_key(name))) or self.items.get(("host", base_host_key(name)))
 
     def account(self, name: str) -> AssetInfo | None:
-        return self.items.get(("account", normalize_account(name)))
+        return self.items.get(("account", user_key(name))) or self.items.get(("account", normalize_account(name)))
 
     def invalidate(self) -> None:
         self.loaded = 0.0

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, query } from "../api";
 import { CritDot } from "../components/Hosts";
 import { ToolBadge } from "../components/AlertBits";
+import { TrivyCveCard, TrivySources, type TrivyCve } from "../components/Trivy";
 import { Card, Empty, ErrorBanner, PageHeader, SeverityBadge, StatusBadge } from "../components/ui";
 import { usePolling } from "../hooks";
 import { formatDate, formatNumber, timeAgo } from "../labels";
@@ -22,6 +23,7 @@ interface Fleet {
   items: FleetRow[];
   total: number;
   assets: number;
+  sources?: { cyberwatch: number; trivy: number };
   at: number | null;
 }
 interface Machine {
@@ -65,6 +67,7 @@ interface CveDetail {
     } | null;
   };
   machines: Machine[];
+  trivy: TrivyCve[];
   counts: { vulnerable: number; ignored: number; fixed: number };
   detections: { module: string; target: string; rule: string; count: number; first: string; last: string }[];
   alerts: { id: number; title: string; status: AlertStatus; severity: number; rule_id: string; last_seen: string | null }[];
@@ -108,9 +111,10 @@ function FleetView() {
   return (
     <>
       <ErrorBanner error={error} />
-      <Card title="CVE présentes sur le parc (Cyberwatch)" icon={Bug}>
+      <TrivySources />
+      <Card title="CVE présentes sur le parc (Cyberwatch, Trivy)" icon={Bug}>
         {!data?.at ? (
-          <Empty>Pas encore de relevé Cyberwatch (Intégrations › Cyberwatch). La recherche ci-dessus fonctionne quand même pour la veille et les détections.</Empty>
+          <Empty>Pas encore de relevé Cyberwatch ni de rapport Trivy (Intégrations). La recherche ci-dessus fonctionne quand même pour la veille et les détections.</Empty>
         ) : (
           <>
             <div className="filters">
@@ -120,7 +124,8 @@ function FleetView() {
               <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtrer (CVE, machine)" />
               <span className="spacer" />
               <span className="muted small">
-                {formatNumber(data.total)} CVE distinctes sur {data.assets} actifs · relevé {timeAgo(new Date(data.at * 1000).toISOString())}
+                {formatNumber(data.total)} CVE distinctes sur {data.assets} actifs
+                {data.sources?.trivy ? ` (dont ${data.sources.trivy} source(s) Trivy)` : ""} · relevé {timeAgo(new Date(data.at * 1000).toISOString())}
               </span>
             </div>
             <table>
@@ -197,7 +202,10 @@ function DetailView({ code }: { code: string }) {
 
       <Card title="Machines touchées" icon={ShieldAlert}>
         {!cw.configured ? (
-          <Empty>Cyberwatch n'est pas raccordé : aucune source ne donne les CVE par machine.</Empty>
+          <Empty>
+            Cyberwatch n'est pas raccordé : pas de CVE par machine du parc
+            {data.trivy?.length ? " (images Docker et serveurs analysés par Trivy : ci-dessous)." : "."}
+          </Empty>
         ) : (
           <>
             {!cw.live && (
@@ -258,6 +266,7 @@ function DetailView({ code }: { code: string }) {
         )}
         {!data.ninjaone.available && <p className="muted small">NinjaOne : {data.ninjaone.reason}</p>}
       </Card>
+      <TrivyCveCard rows={data.trivy ?? []} />
 
       <div className="grid-2">
         <Card title="La faille">
@@ -276,7 +285,8 @@ function DetailView({ code }: { code: string }) {
               {info.technologies.length > 0 && ` · ${info.technologies.join(", ")}`}
             </p>
           )}
-          {!data.kev && !info && <Empty>Ni Cyberwatch ni le catalogue KEV ne décrivent cette CVE.</Empty>}
+          {!data.kev && !info && data.trivy?.[0]?.title && <p>{data.trivy[0].title} <span className="muted small">(Trivy)</span></p>}
+          {!data.kev && !info && !data.trivy?.[0]?.title && <Empty>Ni Cyberwatch ni le catalogue KEV ne décrivent cette CVE.</Empty>}
           {(data.certfr.length > 0 || (info?.certfr.length ?? 0) > 0) && (
             <ul className="small">
               {data.certfr.map((c) => (

@@ -264,6 +264,7 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
 | Connecteur Cyberwatch en lecture seule (API v3, clé d'API) : CVE par actif croisées avec le catalogue KEV, faille activement exploitée présente (UC-48), vulnérabilités prioritaires des serveurs (UC-49), système en fin de support (UC-50), actifs exposés sur la page Veille, classement « à corriger », inventaire, clôture automatique quand les CVE disparaissent ; corrige aussi la clôture automatique des changements de posture NinjaOne (jamais relus jusque-là) | UC-48 à UC-50 | ✅ 07/10 raccordé (58 actifs) ; premier relevé = état des lieux sans alerte |
 | Connecteurs API en lecture seule pour les outils cloud, le Mini-SOC n'étant jamais joignable depuis Internet : **Varonis SaaS** (alertes des modèles de menace, délai activité → alerte mesuré, tactiques MITRE, clôture des alertes fermées dans Varonis) et **GravityZone** (incidents EDR par `getIncidentsList`, fichiers mis en quarantaine, clôture des incidents traités) ; le service Event Push de GravityZone et sa publication en DMZ sont abandonnés | — | 🟡 07/10 livré, à raccorder (clés d'API) |
 | Recherche par CVE (page Vulnérabilités) : machines touchées d'après Cyberwatch en direct (vulnérables, corrigées avec dates, écartées au triage ; dernier relevé si l'instance est injoignable), fiche KEV, CERT-FR, détections et alertes qui citent la CVE ; liste des CVE présentes sur le parc, KEV d'abord. NinjaOne ne donne pas les CVE par poste | — | ✅ 07/10 |
+| **Trivy** : analyse des images Docker du Mini-SOC et des paquets de la VM par le service hôte `minisoc-trivy` (chaque lundi, après chaque mise à jour, bouton « Analyser maintenant » ; conteneur Trivy jetable sans socket Docker, image corrigée `minisoc-trivy`), agent pour les serveurs Linux (jeton par serveur, filtrage IP, rapport compressé vers `/api/ingest/trivy`, liste « Serveurs Trivy » du pare-feu) ; failles fusionnées dans la page Vulnérabilités (composant, version installée → version corrigée), alertes sur les nouvelles failles KEV (UC-52) et critiques corrigeables (UC-53) | UC-52, UC-53 | ✅ 15/10 (testé de bout en bout sur une pile d'essai : 8 cibles, agent, refus 401/403/422) ; à valider sur la VM |
 | Vectra (quadrants menace/certitude, lien console, UC-19) et Varonis (comptes, rançongiciel → UC-06) : traitement CEF dédié | — | ✅ 03/10 |
 | OGO Security (UC-17) | — | ⏳ attend les possibilités d'export de l'offre (syslog/CEF déjà reçu par la règle NATIVE) |
 | Routage des notifications par sévérité depuis l'interface (grille sévérité × canal, heures et jours ouvrés) | F-31 | ✅ 03/10 |
@@ -272,6 +273,7 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
 | Connecteur IA multi-fournisseurs repris de LMU Stats Viewer (OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, Mistral, Ollama, fournisseurs personnalisés, liste des modèles) | — | ✅ 03/10 |
 | Titre UC-22 : afficher le poste quand l'outil ne fournit pas d'IP destination (« visant ? ») | — | ✅ 03/10 |
 | Connecteur Microsoft 365 / Entra ID (journal d'audit unifié, sans licence P1) : développé et testé (API simulée) | — | 🟡 attend l'inscription d'application Entra ID (ActivityFeed.Read) |
+| Croisement des données : **identités unifiées** (un compte sous toutes ses formes — `MAIRIE\jdupont`, UPN et adresses Microsoft 365, nom affiché — d'après l'AD ; une machine par nom court, FQDN ou adresse IP d'après les agents HarfangLab/GravityZone/NinjaOne), colonnes `user_key`/`host_key` à l'ingestion, règles, exceptions, risque et rôles des comptes rapprochés ; **événements en retard** (M365) rattrapés : filigrane sur la date de réception, fenêtres glissantes exactes sur 2 h de marge ; **corrélations entre sources** UC-54 (échecs puis connexion M365 depuis l'étranger), UC-55 (connexion étrangère puis transfert de messagerie), UC-56 (administrateur sur une machine signalée par l'EDR), UC-57 (VPN en France puis M365 à l'étranger) ; **couverture** : machine sans antivirus Bitdefender (UC-58) ou sans EDR HarfangLab (UC-59), le « NONE » de NinjaOne n'alerte plus ; **corroboration** : une machine signalée par plusieurs outils gagne en priorité et en risque | UC-54 à UC-59 | ✅ 14/10 (testé sur ClickHouse 26.9) ; clé GravityZone : ajouter Network API |
 | Mise à jour du cahier des charges : règles UC-21 à UC-41 (§4), état de réalisation F-01 à F-31 et ajouts hors cahier (§11) | — | ✅ 03/10 |
 
 ### 3.3 Mise en production
@@ -287,6 +289,11 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
   adresses du site, les clés SSH, le certificat web (PKI ou wildcard), le compte de secours. Bases de données sur
   un réseau Docker `internal` (aucune sortie). Testée sous QEMU (UEFI Secure Boot, VMXNET3, 2 disques) ; reste à
   valider sur le VxRail.
+- ✅ 15/10 : **images Docker sans faille connue** (Cyberwatch, gestion des correctifs) : Vector, ClickHouse, Redis
+  et PostgreSQL sont reconstruites sur la VM à chaque mise à jour, avec les correctifs Alpine publiés depuis
+  l'image officielle (`deploy/images/alpine-patch.Dockerfile`) ; ClickHouse en variante Alpine (même serveur,
+  même compte) ; `gosu` (Go ancien) remplacé par su-exec ; pip retiré de l'image de l'application, Caddy et Debian
+  mis à jour. Sorties nécessaires en plus : `dl-cdn.alpinelinux.org` et `deb.debian.org` en 443.
 - Sauvegarde nocturne chiffrée (`backup.sh` en cron), récupérée par un serveur tiers en lecture seule ; essai de
   restauration trimestriel.
 - Sonde externe de disponibilité (ex. Uptime Kuma) sur `/api/health/full` (S-12).

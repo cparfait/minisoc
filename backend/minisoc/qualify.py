@@ -19,6 +19,8 @@ from minisoc.ecs import SEVERITY_BY_NAME
 from minisoc.events_store import EventStore
 from minisoc.rules.model import Rule
 
+# Compte désigné par sa clé unifiée (minisoc/identity.py) : toutes ses formes, y compris avant cette version
+SAME_USER = "(user_key = {user:String} OR lower(user_name) = lower({user:String}))"
 HISTORY_DAYS = 30
 RECENT_HOURS = 24  # période de l'attaque, exclue de l'historique « habituel »
 ACCOUNT_ISSUES = ("password_expired", "account_locked", "account_disabled")
@@ -177,7 +179,7 @@ class AuthQualifier:
 
     async def _account(self, values: dict, row: dict) -> Qualification:
         user = str(values.get("user.name", ""))
-        history = await self._history("user_name = {user:String}", {"user": user})
+        history = await self._history(SAME_USER, {"user": user})
         reasons = [f"Compte visé depuis {row.get('value', '?')} IP différentes : attaque distribuée"]
         if history["successes"]:
             reasons.append("Compte réel et actif : l'attaquant connaît un identifiant valide")
@@ -213,11 +215,11 @@ class AuthQualifier:
     async def _success_user(self, values: dict, row: dict) -> Qualification:
         user = str(values.get("user.name", ""))
         success_ips = [ip for ip in row.get("sample_ips", []) if ip]
-        fails = await self._failures("user_name = {user:String}", {"user": user})
+        fails = await self._failures(SAME_USER, {"user": user})
         # Échecs (tous comptes) depuis les IP de la connexion réussie : ces IP participaient-elles à l'attaque ?
         overlap = await self._failures("source_ip IN {ips:Array(String)}", {"ips": success_ips})
         history = await self._history(
-            "user_name = {user:String} AND source_ip IN {ips:Array(String)}", {"user": user, "ips": success_ips}
+            SAME_USER + " AND source_ip IN {ips:Array(String)}", {"user": user, "ips": success_ips}
         )
         usual = bool(history["successes"])
         from_attackers = overlap["users"] >= 2 or (overlap["failures"] > 0 and fails["ips"] > 1)

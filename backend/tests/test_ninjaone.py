@@ -151,9 +151,9 @@ async def test_connector_alerts_once_and_posture_changes_only():
     kinds = [
         json.loads(m["payload"]).get("kind") for m in redis.stream if json.loads(m["payload"])["type"] == "posture"
     ]
-    assert first == 3 and second == 0 and third == 2
-    assert kinds[:3] == ["antivirus_inactive", "critical_vulnerabilities", "patches_failed"]
-    assert kinds[3:] == ["active_threat", "critical_vulnerabilities"]
+    # Premier relevé : état des lieux sans alerte ; ensuite seulement les aggravations
+    assert first == 0 and second == 0 and third == 2
+    assert kinds == ["active_threat", "critical_vulnerabilities"]
     summary = json.loads(redis.kv["minisoc:ninjaone:summary"])
     assert summary["devices"] == 2 and summary["critical"] == 5 and summary["exposed"][0]["name"] == "SRV-FICHIERS-01"
     assert summary["exposed"][0]["console"] == "https://eu.ninjarmm.com/#/deviceDashboard/201/overview"

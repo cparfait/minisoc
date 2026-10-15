@@ -25,6 +25,7 @@ IOC_NOW_KEY = "minisoc:ioc:hunt_now"  # bouton « Chasser maintenant »
 IOC_CURSOR_KEY = "minisoc:ioc:cursor"  # date de réception déjà parcourue (chasse incrémentale)
 IOC_STATUS_KEY = "minisoc:ioc:status"
 ASSETS_NOW_KEY = "minisoc:assets:sync_now"
+RISK_RESOLVE_RATIO = 0.8  # alerte de risque close quand le score repasse sous 80 % du seuil
 ASSETS_STATUS_KEY = "minisoc:assets:status"
 IOC_RULE = "UC-42"
 FEED_MAX_BYTES = 5 * 1024 * 1024
@@ -144,13 +145,18 @@ class IocHunter:
         created = 0
         for ioc_id, hit in hits.items():
             info = meta.get(ioc_id, {})
-            by_entity: dict[str, list[dict]] = defaultdict(list)
+            # Entité touchée, avec son vrai type : machine, sinon compte, sinon adresse source (un compte ou une IP
+            # n'est pas enregistré comme une machine, ce qui fausserait le risque et l'inventaire)
+            by_entity: dict[tuple[str, str], list[dict]] = defaultdict(list)
             for event in hit.events:
-                by_entity[event.get("host_name") or event.get("user_name") or event.get("source_ip") or ""].append(
-                    event
+                field_name, target = next(
+                    ((f, event[k]) for k, f in (("host_name", "host.name"), ("user_name", "user.name"),
+                                                ("source_ip", "source.ip")) if event.get(k)),
+                    ("host.name", ""),
                 )
-            for target, events in by_entity.items():
-                values = {"threat.intel": f"{hit.type}:{hit.value}", "host.name": target}
+                by_entity[(field_name, target)].append(event)
+            for (field_name, target), events in by_entity.items():
+                values = {"threat.intel": f"{hit.type}:{hit.value}", field_name: target}
                 if self.exceptions.is_excepted(rule.id, values):
                     continue
                 events.sort(key=lambda e: e["ts"])
@@ -281,10 +287,12 @@ class RiskJob:
         threshold = int(cfg.get("risk_threshold") or 60)
         report = {"entities": 0, "risk_alerts": 0, "chains": 0, "incidents": 0}
         risk_rule = rules.by_id.get(RISK_RULE)
-        risks = compute_risk(alerts, mitre, criticality, now)
+        risks = compute_risk(alerts, mitre, criticality, now, {r.id: r.category for r in rules.rules})
         for risk in risks.values():
             report["entities"] += 1
             if risk_rule is None or risk.score < threshold:
+                continue
+            if not any(c.get("category", "threat") == "threat" for c in risk.contributions.values()):
                 continue
             field_name = "host.name" if risk.kind == "host" else "user.name"
             values = {field_name: risk.name, "value": round(risk.score)}
@@ -308,7 +316,8 @@ class RiskJob:
                 det = Detection(
                     rule=chain_rule, entity_key=f"{field_name}={chain.name}", severity=chain_rule.severity_level,
                     title=render_title(chain_rule.title, values), first_seen=_aware(chain.steps[0]["ts"]),
-                    last_seen=now, count=len(chain.steps), metric=len(chain.tactics), accumulate=False,
+                    last_seen=max(_aware(s["ts"]) for s in chain.steps), count=len(chain.steps),
+                    metric=len(chain.tactics), accumulate=False,
                     details={"chain": {"tactics": chain.tactics, "steps": chain.steps,
                                        "window_hours": int(CHAIN_WINDOW.total_seconds() // 3600)},
                              "sample": {field_name: chain.name}},
@@ -335,13 +344,17 @@ class RiskJob:
                 kind = "host" if field_name == "host.name" else "user"
                 risk = risks.get((kind, _norm(kind, name)))
                 score = round(risk.score) if risk else 0
-                if score >= threshold:
+                threat = bool(risk) and any(c.get("category", "threat") == "threat" for c in risk.contributions.values())
+                if score >= RISK_RESOLVE_RATIO * threshold and threat:
                     continue
                 alert.status, alert.notify_pending = "resolved", False
                 session.add(AlertHistory(alert_id=alert.id, actor="système", action="status", detail="resolved"))
+                why = (f"Score de risque redescendu à {score} (seuil {threshold}, clôture sous "
+                       f"{round(RISK_RESOLVE_RATIO * threshold)})" if not risk or threat else
+                       f"Score de {score} dû uniquement à l'hygiène du parc (vulnérabilités, antivirus, correctifs), "
+                       "sans menace : pas un risque d'attaque")
                 session.add(AlertHistory(alert_id=alert.id, actor="système", action="comment",
-                                         detail=f"Score de risque redescendu à {score} (seuil {threshold}) : "
-                                         "clôture automatique."))
+                                         detail=f"{why} : clôture automatique."))
                 resolved += 1
             await session.commit()
         return resolved

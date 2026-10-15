@@ -180,6 +180,8 @@ a.button.ghost:hover { border-color: var(--accent); }
 .vpn-services { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .vpn-service { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); }
 .vpn-service.bad { box-shadow: inset 0 0 0 1px var(--sev-high, #f97316); }
+a.vpn-service { color: inherit; text-decoration: none; cursor: pointer; }
+a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
 .vpn-targeted { margin: 0 0 8px; }
 .vpn-recent { width: 100%; table-layout: fixed; }
 .vpn-recent td { padding: 3px 6px; }
@@ -483,3 +485,46 @@ a.button.ghost:hover { border-color: var(--accent); }
 /* Recherche : lien vers la console de l'outil d'origine, en tête du message */
 .search-console { float: right; margin-left: 8px; }
 .search-raw .event-raw .pre { max-height: 360px; overflow: auto; }
+
+/* Échecs par motif (widget Comptes Microsoft 365) : une ligne cliquable par motif ; sous-grille commune pour aligner
+   barres, échecs et comptes distincts d'un motif à l'autre */
+.reason-list { display: grid; grid-template-columns: minmax(max-content, 1.4fr) minmax(40px, 2fr) auto auto; column-gap: 10px; margin: 4px 0 10px; }
+.reason-title { grid-column: 1 / -1; margin: 0 0 4px; }
+.reason-row {
+  grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center;
+  padding: 5px 8px; border-radius: var(--radius-xs); color: var(--text); text-decoration: none; font-size: 13.5px;
+}
+.reason-row:hover { background: var(--panel-3); }
+.reason-row:hover .reason-label { text-decoration: underline; }
+.reason-bar { height: 8px; border-radius: 999px; background: var(--panel-3); overflow: hidden; }
+.reason-bar i { display: block; height: 100%; border-radius: 999px; background: var(--low); }
+.reason-row.alarm .reason-bar i { background: var(--high); }
+.reason-row.alarm .reason-label { color: var(--high); font-weight: 600; }
+.reason-count, .reason-users { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.reason-count { text-align: right; }
+.reason-count b { font-size: 14px; }
+.reason-users { color: var(--muted); }
+.reason-users b { color: var(--text); font-weight: 600; }
+.reason-label { white-space: nowrap; }
+.reason-label::first-letter { text-transform: uppercase; }
+
+/* Fiche d'alerte : machine choisie dans « Machines concernées » → levée de doute de cette machine */
+.impacted-hint { margin: 0 0 6px; }
+.impacted-table.selectable tbody tr { cursor: pointer; }
+.impacted-table.selectable tbody tr:hover { background: var(--panel-3); }
+.impacted-table tbody tr.selected { background: var(--panel-3); box-shadow: inset 3px 0 0 var(--accent); }
+.triage-host { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; padding: 6px 10px;
+  border-radius: var(--radius-xs); background: var(--panel-2); }
+.triage-host .link-button { margin-left: auto; }
+.link-button { background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; font: inherit; }
+.link-button:hover { text-decoration: underline; }
+
+/* Couverture antivirus et EDR (Veille) */
+.coverage-error { color: #fdba74; margin: 4px 0; }
+.risk-tools { margin: 6px 0; }
+
+/* Trivy : fiche de l'intégration (analyse de la VM, jetons des serveurs) */
+.trivy-admin { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 8px; }
+.trivy-admin h3 { margin: 12px 0 4px; font-size: 14px; }
+.token-once { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--warn, #c90); border-radius: 6px; }
+.token-once code { display: block; margin: 4px 0; word-break: break-all; user-select: all; }

@@ -17,6 +17,7 @@ from minisoc.parsers.harfanglab import parse_harfanglab
 from minisoc.parsers.m365 import parse_m365
 from minisoc.parsers.ninjaone import parse_ninjaone
 from minisoc.parsers.sophos import looks_like_sophos, parse_sophos
+from minisoc.parsers.trivy import parse_trivy
 from minisoc.parsers.varonis import parse_varonis
 from minisoc.parsers.vectra import parse_vectra
 from minisoc.parsers.windows import looks_like_windows, parse_windows
@@ -72,6 +73,8 @@ def parse_message(kind: str, payload: str, *, bitdefender_url: str = "", harfang
             return parse_varonis(data, received)
         if kind == "vectra":
             return parse_vectra(data, received)
+        if kind == "trivy":
+            return parse_trivy(data, received)
         raise ValueError(f"type de message inconnu : {kind}")
     except Exception as exc:  # noqa: BLE001 - aucun message ne doit être perdu
         log.warning("message non analysable (%s) : %s", kind, exc)

@@ -5,7 +5,7 @@ from conftest import RULES_DIR
 
 from minisoc.geoip import GeoIP
 from minisoc.rules import Rule, RuleError, load_rules
-from minisoc.rules.sql import novelty_query
+from minisoc.rules.sql import LATE_SECONDS, USER_KEY, novelty_query
 
 
 def test_uc04_definition():
@@ -18,10 +18,11 @@ def test_uc04_definition():
 def test_novelty_query_shape():
     rule = next(r for r in load_rules(RULES_DIR) if r.id == "UC-04")
     sql, params = novelty_query(rule)
-    assert "user_name AS g0, source_country AS g1" in sql
-    assert "(user_name, source_country) NOT IN" in sql
+    assert f"{USER_KEY} AS g0, source_country AS g1" in sql
+    assert f"({USER_KEY}, source_country) NOT IN" in sql
+    assert "ingest_ts <" in sql and "ingest_ts >=" in sql  # historique = ce qui avait été reçu avant
     assert "HAVING count() >=" in sql
-    assert 30 * 86400 in params.values() and 900 in params.values()
+    assert 30 * 86400 in params.values() and 900 + LATE_SECONDS in params.values()
 
 
 def test_novelty_requires_group_by():

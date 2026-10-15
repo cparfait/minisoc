@@ -90,6 +90,8 @@ class Rule:
     qualify: str = ""  # qualification automatique (voir minisoc/qualify.py)
     mitre: list[str] = field(default_factory=list)  # techniques MITRE ATT&CK détectées
     playbook: str = ""
+    # Catégorie de l'alerte : threat (menace), hygiene (hygiène du parc : vulnérabilité, antivirus…), info
+    category: str = "threat"
     enabled: bool = True
     path: str = ""
 
@@ -140,10 +142,13 @@ class Rule:
             storm_limit=int(data.get("storm_limit", 5)),
             qualify=str(data.get("qualify") or ""),
             playbook=str(data.get("playbook") or ""),
+            category=str(data.get("category") or "threat"),
             enabled=bool(data.get("enabled", True)),
             path=path,
             mitre=[str(t).strip().upper() for t in data.get("mitre") or []],
         )
+        if rule.category not in ("threat", "hygiene", "info"):
+            raise RuleError(f"catégorie inconnue : {rule.category} (attendues : threat, hygiene, info)")
         for technique in rule.mitre:
             if not TECHNIQUE_RE.match(technique):
                 raise RuleError(f"technique MITRE ATT&CK invalide : {technique} (format T1110 ou T1110.003)")

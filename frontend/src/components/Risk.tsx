@@ -21,6 +21,18 @@ export interface EntityRisk {
   score: number;
   tactics: { id: string; name: string }[];
   contributors: Contributor[];
+  tools?: string[]; // outils de détection l'ayant signalée (menaces)
+  corroboration?: number; // points ajoutés quand plusieurs outils la signalent
+}
+
+/** Machine ou compte signalé par plusieurs outils indépendants (HarfangLab, Bitdefender, Vectra…). */
+function Tools({ risk }: { risk: EntityRisk }) {
+  if (!risk.tools || risk.tools.length < 2) return null;
+  return (
+    <p className="small risk-tools">
+      Signalée par {risk.tools.length} outils : {risk.tools.join(", ")} (+{risk.corroboration} points)
+    </p>
+  );
 }
 
 const entityLink = (r: { kind: string; name: string }) =>
@@ -65,7 +77,10 @@ export function RiskTop({ limit = 8 }: { limit?: number }) {
             <li key={`${r.kind}${r.name}`} title={r.contributors.map((c) => `+${Math.round(c.points)} ${c.title}`).join("\n")}>
               {r.kind === "host" ? <Monitor size={14} /> : <UserIcon size={14} />}
               <Link to={entityLink(r)} className="mono">{r.name}</Link>
-              <span className="muted small">{r.contributors.length} détection(s){r.tactics.length > 0 && ` · ${r.tactics.length} tactique(s)`}</span>
+              <span className="muted small">
+                {r.contributors.length} détection(s){r.tactics.length > 0 && ` · ${r.tactics.length} tactique(s)`}
+                {(r.tools?.length ?? 0) > 1 && ` · ${r.tools!.length} outils`}
+              </span>
               <ScoreBar score={r.score} threshold={data.threshold} />
             </li>
           ))}
@@ -89,10 +104,12 @@ export function RiskCard({ kind, name }: { kind: "host" | "account"; name: strin
           {data.risk.tactics.length > 0 && (
             <p className="small">Tactiques MITRE : {data.risk.tactics.map((t) => t.name).join(" → ")}</p>
           )}
+          <Tools risk={data.risk} />
           <Contributors items={data.risk.contributors} />
           <p className="muted small">
-            Une détection compte une fois ; sévérité, tactiques supplémentaires (+10 chacune) et criticité de l'inventaire
-            pondèrent le total. Seuil d'alerte : {data.threshold}.
+            Une détection compte une fois ; sévérité, tactiques supplémentaires (+10 chacune), outils supplémentaires
+            ayant signalé la même entité (+10 chacun) et criticité de l'inventaire pondèrent le total. Seuil
+            d'alerte : {data.threshold}.
           </p>
         </>
       )}
@@ -118,6 +135,7 @@ export function DerivedDetails({ details }: { details: Record<string, unknown> }
             Score <strong>{risk.score}</strong> pour <Link to={entityLink(risk)} className="mono">{risk.name}</Link>
             {risk.tactics.length > 0 && <> · tactiques : {risk.tactics.map((t) => t.name).join(", ")}</>}
           </p>
+          <Tools risk={risk} />
           <Contributors items={risk.contributors} />
         </>
       )}

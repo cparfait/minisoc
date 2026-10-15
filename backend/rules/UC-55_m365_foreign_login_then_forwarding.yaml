@@ -1,0 +1,28 @@
+id: UC-55
+name: Connexion depuis l'étranger puis transfert de messagerie
+type: sequence
+severity: critical
+description: >
+  Un compte s'est connecté à Microsoft 365 depuis l'étranger, puis une règle de boîte aux lettres ou un transfert
+  automatique a été créé sur ce même compte dans les 24 heures. Enchaînement typique d'une prise de contrôle de
+  messagerie avant une fraude au virement (fausse facture, changement de RIB d'un fournisseur) : supprimer la règle,
+  révoquer les sessions et changer le mot de passe sans attendre.
+sequence:
+  first:
+    event.module: m365
+    event.category: authentication
+    event.action: logon
+    event.outcome: success
+    source.geo.country_iso_code: {exists: true, not_in: $home_countries}
+    source.as.organization.name: {not_contains: [Microsoft]}
+  min_count: 1
+  within: 24h
+  then:
+    event.module: m365
+    event.action: mail_forwarding_rule
+  join_on: user.name
+window: 15m
+title: "{user.name} : transfert de messagerie créé après une connexion depuis l'étranger"
+dedup_window: 24h
+mitre: [T1078.004, T1114.003]
+playbook: playbooks/m365-account.md

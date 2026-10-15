@@ -1,0 +1,30 @@
+id: UC-54
+name: Connexion Microsoft 365 depuis l'étranger après des échecs répétés
+type: sequence
+severity: high
+description: >
+  Un compte Microsoft 365 a cumulé des mauvais mots de passe, puis une connexion réussit depuis un pays qui ne fait
+  pas partie des pays habituels. Le mot de passe a probablement été trouvé (force brute, pulvérisation) : le compte
+  est à considérer comme compromis tant que l'utilisateur n'a pas confirmé être à l'étranger. Les événements de
+  Microsoft 365 arrivent avec 30 à 90 minutes de retard : ils sont rattrapés à leur arrivée.
+sequence:
+  first:
+    event.module: m365
+    event.category: authentication
+    event.outcome: failure
+    event.reason: [invalid_credentials, account_locked]
+  min_count: 5
+  within: 2h
+  then:
+    event.module: m365
+    event.category: authentication
+    event.action: logon
+    event.outcome: success
+    source.geo.country_iso_code: {exists: true, not_in: $home_countries}
+    source.as.organization.name: {not_contains: [Microsoft]}
+  join_on: user.name
+window: 15m
+title: "Connexion Microsoft 365 de {user.name} depuis l'étranger après des échecs répétés"
+dedup_window: 24h
+mitre: [T1110, T1078.004]
+playbook: playbooks/m365-account.md

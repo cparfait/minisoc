@@ -28,8 +28,10 @@ FIELDS: dict[str, str] = {
     "destination.ip": "destination_ip",
     "destination.port": "destination_port",
     "user.name": "user_name",
+    "user.key": "user_key",  # compte unifié : identifiant Windows quelle que soit la forme reçue (minisoc/identity.py)
     "user.roles": "user_roles",  # compte sensible : « admin », « service » ou « admin,service » (minisoc/accounts.py)
     "host.name": "host_name",
+    "host.key": "host_key",  # machine unifiée : nom court, adresse IP remplacée par le nom quand il est connu
     "host.ip": "host_ip",
     "network.service": "network_service",
     "rule.name": "rule_name",
@@ -69,8 +71,10 @@ class Event:
     destination_ip: str = ""
     destination_port: int = 0
     user_name: str = ""
+    user_key: str = ""  # compte unifié (minisoc/identity.py), ajouté à l'enrichissement
     user_roles: str = ""  # rôle du compte (administrateur, compte de service), ajouté à l'enrichissement
     host_name: str = ""
+    host_key: str = ""  # machine unifiée (minisoc/identity.py), ajoutée à l'enrichissement
     host_ip: str = ""
     network_service: str = ""
     rule_name: str = ""

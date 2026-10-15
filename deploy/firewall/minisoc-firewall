@@ -8,6 +8,12 @@ for v in LAN_IF ADMINS DNS NTP; do   # une liste vide fermerait l'accès : refus
   eval "[ -n \"\${$v:-}\" ]" || { echo "minisoc-firewall : $v est vide dans /etc/minisoc/firewall.conf" >&2; exit 1; }
 done
 csv() { echo "$*" | tr -s ' ' ',' | sed 's/^,//; s/,$//'; }
+# Sorties LAN autorisées (hôte:port) : valables pour les conteneurs et pour la VM elle-même (agent Cyberwatch…)
+lan_out_host=""
+for hp in ${LAN_OUT:-}; do
+  lan_out_host="$lan_out_host
+    ip daddr ${hp%:*} tcp dport ${hp##*:} accept"
+done
 
 # ---------- 1. La machine (SSH, NTP, DNS, mises à jour) ----------
 nft -f - <<EOF
@@ -33,7 +39,7 @@ table inet minisoc_host {
     ct state established,related accept
     ip daddr @dns meta l4proto { tcp, udp } th dport 53 accept
     ip daddr @ntp udp dport 123 accept
-    ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport { 80, 443 } accept
+    ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport { 80, 443 } accept$lan_out_host
     oifname != "$LAN_IF" accept
     limit rate 6/minute log prefix "minisoc-hote-refus-sortie " level info
   }
@@ -53,6 +59,7 @@ allow_in() {  # allow_in <port> <tcp|udp> <sources…> : port publié par un con
   done
 }
 allow_in 443 tcp $ADMINS $WALL                # jamais depuis Internet : aucune publication
+allow_in 443 tcp ${TRIVY:-}                   # serveurs qui envoient leurs rapports Trivy (/api/ingest/trivy)
 allow_in 80 tcp $ADMINS                       # redirection vers HTTPS
 allow_in 514 tcp $SYSLOG_TCP
 allow_in 6514 tcp $SYSLOG_TLS

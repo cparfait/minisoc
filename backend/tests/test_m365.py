@@ -149,3 +149,33 @@ async def test_token_refused_is_reported_clearly():
             assert "Invalid client secret" in str(exc)
         else:
             raise AssertionError("jeton accepté à tort")
+
+
+class FakeStore:
+    """Magasin d'événements simulé : renvoie des lignes selon la requête et garde le SQL reçu."""
+
+    def __init__(self, reasons: list[dict]) -> None:
+        self.reasons = reasons
+        self.queries: list[str] = []
+
+    async def query(self, sql: str, params: dict) -> list[dict]:
+        self.queries.append(sql)
+        if "GROUP BY reason" in sql:
+            return self.reasons
+        if "countIf(outcome = 'failure') AS failures" in sql:
+            return [{"failures": 392, "users_failed": 23}]
+        return []
+
+
+async def test_dashboard_card_counts_distinct_accounts_per_reason():
+    from minisoc.stats import m365_activity
+
+    rows = [{"reason": "account_locked", "n": 269, "users": 4}, {"reason": "invalid_credentials", "n": 59, "users": 17}]
+    store = FakeStore(rows)
+    result = await m365_activity(store)
+    assert result["reasons"] == rows
+    assert result["summary"]["users_failed"] == 23
+    sql = next(q for q in store.queries if "GROUP BY reason" in q)
+    # Comptes distincts par motif, sans compter les échecs dont le nom de compte est vide
+    assert "count() AS n" in sql and "uniqExactIf(user_name, user_name != '') AS users" in sql
+    assert "outcome = 'failure'" in sql

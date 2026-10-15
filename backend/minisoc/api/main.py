@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from minisoc.api import (
     reports,
     rules_admin,
     search,
+    trivy,
     wall,
 )
 from minisoc.api import assets as assets_api
@@ -36,14 +38,22 @@ from minisoc.api import response as response_api
 from minisoc.config import get_settings
 from minisoc.db import init_db, sessionmaker
 from minisoc.events_store import EventStore
+from minisoc.identity import IDENTITIES
 from minisoc.rules.custom import load_all
 from minisoc.rules.engine import RuleSet
-from minisoc.upgrade import keep_working_integrations
+from minisoc.upgrade import categorize_rule_alerts, keep_working_integrations, retire_unreliable_antivirus
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 CSRF_HEADER = "x-minisoc"
+
+
+async def _refresh_identities(redis) -> None:
+    """Tables d'alias des comptes et machines (minisoc/identity.py) : risque, inventaire, recherche."""
+    while True:
+        await IDENTITIES.ensure(redis)
+        await asyncio.sleep(30)
 
 
 @asynccontextmanager
@@ -57,7 +67,11 @@ async def lifespan(app: FastAPI):
     async with sessionmaker()() as session:
         app.state.rules = RuleSet(await load_all(session, settings.rules_dir))
         await keep_working_integrations(session, app.state.redis)  # mise à jour d'une installation existante
+        await categorize_rule_alerts(session, app.state.rules)
+        await retire_unreliable_antivirus(session)
+    identities = asyncio.create_task(_refresh_identities(app.state.redis))
     yield
+    identities.cancel()
     await app.state.redis.aclose()
     await app.state.store.close()
 
@@ -85,7 +99,7 @@ async def csrf_guard(request: Request, call_next):
 @app.get("/api/health")
 async def health():
     """Vivacité de l'API seule."""
-    return {"status": "ok", "version": __version__}
+    return {"status": "ok"}
 
 
 WORKER_STALE_SECONDS = 120
@@ -120,10 +134,10 @@ async def health_full(request: Request):
     except Exception:  # noqa: BLE001
         checks["clickhouse"] = False
     healthy = all(v for k, v in checks.items() if isinstance(v, bool))
-    return JSONResponse({"status": "ok" if healthy else "degraded", "version": __version__, "checks": checks},
+    return JSONResponse({"status": "ok" if healthy else "degraded", "checks": checks},
                         status_code=200 if healthy else 503)
 
 
 for module in (auth, alerts, data, exceptions, ingest, wall, admin, ai, response_api, integrations_api, accounts_api,
-               incidents, reports, detections, search, rules_admin, assets_api, iocs, archives, posture_api):
+               incidents, reports, detections, search, rules_admin, assets_api, iocs, archives, posture_api, trivy):
     app.include_router(module.router)

@@ -20,7 +20,15 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from minisoc.detections import WIDESPREAD, alert_detections, detection_key, entity_parts, spread
+from minisoc.detections import (
+    DETECTION_TOOLS,
+    WIDESPREAD,
+    alert_detections,
+    corroboration,
+    detection_key,
+    entity_parts,
+    spread,
+)
 from minisoc.frameworks import TACTICS, TECHNIQUES
 from minisoc.models import Alert
 from minisoc.replay import TACTIC_TAGS
@@ -137,6 +145,7 @@ class EntityRisk:
     score: float = 0.0
     tactics: set[str] = field(default_factory=set)
     contributions: dict[str, dict] = field(default_factory=dict)  # détection -> {points, alert_id, title…}
+    tools: set[str] = field(default_factory=set)  # outils de détection l'ayant signalée (menaces)
 
     def to_dict(self) -> dict:
         items = sorted(self.contributions.values(), key=lambda c: -c["points"])
@@ -146,6 +155,8 @@ class EntityRisk:
             "score": round(self.score),
             "tactics": [{"id": t, "name": TACTICS.get(t, t)} for t in sorted(self.tactics, key=_tactic_order)],
             "contributors": items,
+            "tools": [DETECTION_TOOLS.get(t, t) for t in sorted(self.tools)],
+            "corroboration": corroboration(self.tools)[0],
         }
 
 
@@ -155,9 +166,11 @@ def _tactic_order(tactic: str) -> int:
 
 
 def compute_risk(
-    alerts: list[Alert], rule_mitre: dict[str, list[str]], criticality=None, now: datetime | None = None
+    alerts: list[Alert], rule_mitre: dict[str, list[str]], criticality=None, now: datetime | None = None,
+    rule_category: dict[str, str] | None = None,
 ) -> dict[tuple[str, str], EntityRisk]:
-    """`criticality(kind, name)` → criticité de l'inventaire (ou None)."""
+    """`criticality(kind, name)` → criticité de l'inventaire (ou None). `rule_category` : catégorie de chaque règle
+    (hygiène du parc…), pour les alertes créées avant que la règle ne la précise."""
     now = now or datetime.now(timezone.utc)
     machines = spread([a for a in alerts if a.status in ("new", "in_progress", "waiting")])
     domains = domains_of(alerts)
@@ -166,7 +179,7 @@ def compute_risk(
         last = alert.last_seen if alert.last_seen.tzinfo else alert.last_seen.replace(tzinfo=timezone.utc)
         if alert.rule_id in DERIVED_RULES or alert.status == "false_positive" or now - last > RISK_WINDOW:
             continue
-        category = (alert.details or {}).get("category") or "threat"
+        category = (alert.details or {}).get("category") or (rule_category or {}).get(alert.rule_id) or "threat"
         points = SEVERITY_POINTS.get(alert.severity, 0) * CATEGORY_FACTOR.get(category, 1.0)
         found = alert_detections(alert)
         if found and max(machines.get(detection_key(m, d), 0) for m, d, _, _ in found) >= WIDESPREAD:
@@ -191,11 +204,16 @@ def compute_risk(
                     "severity": alert.severity,
                     "category": category,
                     "last_seen": last.isoformat(),
+                    "modules": sorted(alert.modules or []),
                 }
             risk.tactics |= tactics
     for (kind, _), risk in out.items():
         base = sum(c["points"] for c in risk.contributions.values())
         bonus = min(30, 10 * max(0, len(risk.tactics) - 1))
+        # Corroboration : la même entité signalée par plusieurs outils de détection indépendants
+        risk.tools = {m for c in risk.contributions.values() if c["category"] == "threat"
+                      for m in c.get("modules", []) if m in DETECTION_TOOLS}
+        bonus += corroboration(risk.tools)[0]
         factor = CRITICALITY_FACTOR.get((criticality(kind, risk.name) if criticality else None) or "normal", 1.0)
         risk.score = (base + bonus) * factor
     return out

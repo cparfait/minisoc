@@ -2,6 +2,15 @@
 # Vector se limite à recevoir, horodater, mettre en tampon disque et relayer à l'API.
 data_dir: /var/lib/vector
 
+# Jeton d'envoi à l'API : secret Docker monté en lecture seule dans /run/secrets (docker-compose.yml). Depuis la
+# version 0.59, Vector ne remplace plus les variables d'environnement dans sa configuration : « ${...} » partait
+# tel quel et l'API refusait tout.
+secret:
+  minisoc:
+    type: directory
+    path: /run/secrets
+    remove_trailing_whitespace: true
+
 sources:
   syslog_udp:
     type: socket
@@ -37,7 +46,7 @@ sinks:
       codec: json
     auth:
       strategy: bearer
-      token: "${MINISOC_INGEST_TOKEN}"
+      token: "SECRET[minisoc.minisoc_ingest_token]"
     batch:
       max_events: 500
       timeout_secs: 1

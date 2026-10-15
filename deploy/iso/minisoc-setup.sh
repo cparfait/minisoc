@@ -24,7 +24,7 @@ apply_all() {
 }
 
 if [ "${1:-}" = "--rollback" ]; then
-  for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS"; do
+  for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS" /etc/minisoc/firewall-notes.conf; do
     if [ -f "$f.prev" ]; then cp -p "$f.prev" "$f"; fi
   done
   apply_all
@@ -32,51 +32,86 @@ if [ "${1:-}" = "--rollback" ]; then
   exit 0
 fi
 
-# ---------- Habillage : vert phosphore sur noir ----------
-export NEWT_COLORS='
-root=green,black
-border=green,black
-window=green,black
-shadow=black,black
-title=brightgreen,black
-button=black,green
-actbutton=black,brightgreen
-compactbutton=green,black
-checkbox=green,black
-actcheckbox=black,green
-entry=brightgreen,black
-disentry=gray,black
-label=green,black
-listbox=green,black
-sellistbox=brightgreen,black
-actlistbox=black,green
-actsellistbox=black,brightgreen
-textbox=green,black
-acttextbox=black,green
-emptyscale=,black
-fullscale=,green
-helpline=black,green
-roottext=brightgreen,black
-'
-G=$'\e[1;32m' D=$'\e[0;32m' Y=$'\e[1;33m' R=$'\e[1;31m' W=$'\e[1;37m' N=$'\e[0m'
+# ---------- Habillage : dialog, fond noir, texte gris, accent vert ----------
+# dialog plutôt que whiptail : Échap immédiat, formulaires à plusieurs champs, couleurs réglables.
+if ! command -v dialog >/dev/null 2>&1; then
+  echo "Installation de dialog (console de paramétrage)…"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -q dialog >/dev/null 2>&1 \
+    || { echo "dialog est nécessaire : sudo apt install dialog"; exit 1; }
+fi
+export ESCDELAY=25   # Échap pris en compte tout de suite (sinon une seconde d'attente)
+export NCURSES_NO_UTF8_ACS=1   # cadres en caractères Unicode : PuTTY (UTF-8) affiche sinon « lqqqk » et « x »
+DIALOGRC=$(mktemp)
+export DIALOGRC
+trap 'rm -f "$DIALOGRC"' EXIT
+cat > "$DIALOGRC" <<'EOF'
+use_shadow = OFF
+use_colors = ON
+screen_color = (WHITE,BLACK,OFF)
+shadow_color = (BLACK,BLACK,OFF)
+dialog_color = (WHITE,BLACK,OFF)
+title_color = (GREEN,BLACK,ON)
+border_color = (WHITE,BLACK,OFF)
+border2_color = (WHITE,BLACK,OFF)
+button_active_color = (BLACK,GREEN,OFF)
+button_inactive_color = (WHITE,BLACK,OFF)
+button_key_active_color = (BLACK,GREEN,OFF)
+button_key_inactive_color = (GREEN,BLACK,ON)
+button_label_active_color = (BLACK,GREEN,OFF)
+button_label_inactive_color = (WHITE,BLACK,ON)
+inputbox_color = (WHITE,BLACK,ON)
+inputbox_border_color = (WHITE,BLACK,OFF)
+inputbox_border2_color = (WHITE,BLACK,OFF)
+searchbox_color = (WHITE,BLACK,OFF)
+searchbox_title_color = (GREEN,BLACK,ON)
+searchbox_border_color = (WHITE,BLACK,OFF)
+searchbox_border2_color = (WHITE,BLACK,OFF)
+position_indicator_color = (GREEN,BLACK,OFF)
+menubox_color = (WHITE,BLACK,OFF)
+menubox_border_color = (BLACK,BLACK,ON)
+menubox_border2_color = (BLACK,BLACK,ON)
+item_color = (WHITE,BLACK,OFF)
+item_selected_color = (BLACK,GREEN,OFF)
+tag_color = (WHITE,BLACK,ON)
+tag_selected_color = (BLACK,GREEN,OFF)
+tag_key_color = (GREEN,BLACK,ON)
+tag_key_selected_color = (BLACK,GREEN,OFF)
+check_color = (WHITE,BLACK,OFF)
+check_selected_color = (BLACK,GREEN,OFF)
+uarrow_color = (GREEN,BLACK,ON)
+darrow_color = (GREEN,BLACK,ON)
+itemhelp_color = (WHITE,BLACK,OFF)
+form_active_text_color = (BLACK,GREEN,OFF)
+form_text_color = (BLACK,WHITE,OFF)
+form_item_readonly_color = (WHITE,BLACK,OFF)
+gauge_color = (GREEN,BLACK,OFF)
+bindkey formfield TAB FORM_NEXT
+bindkey formfield BTAB FORM_PREV
+bindkey formbox TAB FORM_NEXT
+bindkey formbox BTAB FORM_PREV
+EOF
+G=$'\e[1;32m' C=$'\e[1;32m' D=$'\e[0;37m' Y=$'\e[1;33m' R=$'\e[1;31m' W=$'\e[1;37m' N=$'\e[0m'
 HOST=$(hostname -f 2>/dev/null || hostname)
 BT="MINI-SOC ▌ $HOST ▌ console de paramétrage"
 
 banner() {
   clear
-  printf '%s' "$G"
+  printf '%s' "$C"
   [ -f "$BANNER" ] && cat "$BANNER"
   printf '%s\n' "$N"
 }
-section() { printf '\n%s┌─[ %s ]%s\n' "$G" "$*" "$N"; }
-line() { printf '%s│%s %s\n' "$G" "$N" "$*"; }
+section() { printf '\n%s┌─[ %s ]%s\n' "$C" "$*" "$N"; }
+line() { printf '%s│%s %s\n' "$C" "$N" "$*"; }
 ok() { printf '%s│ [OK]%s %s\n' "$G" "$N" "$*"; }
 ko() { printf '%s│ [!!]%s %s\n' "$R" "$N" "$*"; }
-end() { printf '%s└──────────────────────────────────────────────────────────%s\n' "$G" "$N"; }
+end() { printf '%s└──────────────────────────────────────────────────────────%s\n' "$C" "$N"; }
 pause() { read -r -p "${D}  [Entrée] pour revenir au menu${N} " _; }
 
-# whiptail : la réponse sort sur stderr ; Annuler = code 1
-wt() { whiptail --backtitle "$BT" "$@" 3>&1 1>&2 2>&3; }
+# dialog : la réponse sort sur stderr ; Annuler = code 1, Échap = 255 (traités pareil : on revient en arrière)
+wt() {
+  dialog --backtitle "$BT" --colors --ok-label "Valider" --cancel-label "Retour" --yes-label "Oui" \
+    --no-label "Non" --exit-label "Fermer" "$@" 3>&1 1>&2 2>&3
+}
 boxh() {  # hauteur de boîte adaptée au texte (lignes + 7), entre 10 et 26
   local h
   h=$(( $(printf '%b\n' "$1" | wc -l) + 7 ))
@@ -84,7 +119,7 @@ boxh() {  # hauteur de boîte adaptée au texte (lignes + 7), entre 10 et 26
   [ "$h" -gt 26 ] && h=26
   echo "$h"
 }
-msg() { wt --title "$1" --msgbox "$2" "$(boxh "$2")" 76; }
+msg() { wt --title "$1" --ok-label "OK" --msgbox "$2" "$(boxh "$2")" 76 || true; }
 confirm() { wt --title "$1" --yesno "$2" "$(boxh "$2")" 76; }
 
 valid_addrs() {  # adresses IPv4 ou plages CIDR, séparées par des espaces
@@ -116,9 +151,139 @@ with_port() { local a; for a in $1; do printf '%s:%s ' "$a" "$2"; done; }
 envget() { grep "^$1=" "$APP/.env" 2>/dev/null | cut -d= -f2- || true; }
 envset() { if grep -q "^$1=" "$APP/.env"; then sed -i "s|^$1=.*|$1=$2|" "$APP/.env"; else echo "$1=$2" >> "$APP/.env"; fi; }
 
+# ---------- Listes d'adresses, chacune avec sa description ----------
+# Descriptions pour la DSI (le pare-feu ne les lit pas) : une ligne LISTE|adresse|description
+NOTES_FILE=/etc/minisoc/firewall-notes.conf
+NOTE_LISTS="ADMINS WALL TRIVY SYSLOG_TCP SYSLOG_TLS SYSLOG_UDP DNS NTP DCS SMTP XGS_API CROWDSEC OTHER_OUT"
+declare -A NOTES=()
+load_notes() {
+  NOTES=()
+  [ -f "$NOTES_FILE" ] || return 0
+  local v a d
+  while IFS='|' read -r v a d; do
+    [ -n "$v" ] && [ "${v:0:1}" != "#" ] && [ -n "$a" ] || continue
+    NOTES["$v|$a"]=$d
+  done < "$NOTES_FILE"
+}
+note() { printf '%s' "${NOTES["$1|$2"]:-}"; }
+clean_note() { printf '%s' "$1" | tr -d '|"`$\\' | tr -s '\t\r\n' '   ' | sed 's/^ *//; s/ *$//' | cut -c1-60; }
+described() {  # « 192.168.3.1 (PC DSI) 192.168.2.253 (Sophos XGS) »
+  local a d out=""
+  for a in ${!1:-}; do d=$(note "$1" "$a"); out+="$a${d:+ ($d)} "; done
+  printf '%s' "${out% }"
+}
+count() { local n=0 a; for a in ${!1:-}; do n=$((n + 1)); done; printf '%2d' "$n"; }
+save_notes() {
+  local v a d
+  {
+    echo "# Descriptions des adresses du pare-feu, écrites par sudo minisoc-setup : LISTE|adresse|description"
+    for v in $NOTE_LISTS; do
+      for a in ${!v:-}; do d=$(note "$v" "$a"); [ -z "$d" ] || printf '%s|%s|%s\n' "$v" "$a" "$d"; done
+    done
+  } > "$NOTES_FILE"
+  chmod 640 "$NOTES_FILE"
+}
+# menu_size <texte> <nombre d'entrées> : « hauteur largeur lignes » d'un menu, liste à la taille de son contenu
+menu_size() {
+  local rows=$2 text_lines
+  [ "$rows" -lt 3 ] && rows=3
+  [ "$rows" -gt 12 ] && rows=12
+  text_lines=$(printf '%b\n' "$1" | wc -l)
+  echo "$(( rows + text_lines + 9 )) 78 $rows"
+}
+# Modifications faites dans un menu : rien n'est actif avant « Appliquer », on le propose en sortant
+offer_apply() {
+  [ "$PENDING" = 1 ] || return 0
+  confirm "Appliquer ?" "Les modifications sont enregistrées dans la console mais \\Zbpas encore actives\\ZB sur le pare-feu.\n\nLes appliquer maintenant ?\n(Non : elles restent en attente, menu « > APPLIQUER » plus tard.)" \
+    && s_apply
+  return 0
+}
+# form_entry <titre> <texte> <adresse> <description> : les deux champs sur un même écran → FORM_ADDR, FORM_DESC
+form_entry() {
+  local out
+  out=$(wt --title "$1" --ok-label "Enregistrer" --cancel-label "Annuler" \
+    --form "$2\n\\ZbTab\\ZB : champ suivant   \\ZbEntrée\\ZB : enregistrer   \\ZbÉchap\\ZB : annuler" 11 78 2 \
+    "Adresse     " 1 2 "$3" 1 16 32 43 \
+    "Description " 2 2 "$4" 2 16 58 60) || return 1
+  FORM_ADDR=$(norm "$(sed -n 1p <<< "$out")")
+  FORM_DESC=$(clean_note "$(sed -n 2p <<< "$out")")
+}
+# check_entry <titre> <addrs|hostports> <variable> <adresse> <ancienne adresse>
+check_entry() {
+  local title=$1 kind=$2 var=$3 a=$4 old=$5
+  [ -n "$a" ] || { msg "$title" "L'adresse est obligatoire."; return 1; }
+  [[ "$a" != *" "* ]] || { msg "$title" "Une seule adresse par ligne : $a"; return 1; }
+  case $kind in
+    addrs) valid_addrs "$a" || { msg "$title" "Adresse ou plage invalide : $a"; return 1; } ;;
+    hostports) valid_hostports "$a" || { msg "$title" "Format attendu : adresse:port (ex. 192.168.10.8:587)"; return 1; } ;;
+  esac
+  if [ "$a" != "$old" ] && [[ " ${!var} " == *" $a "* ]]; then msg "$title" "$a est déjà dans la liste."; return 1; fi
+}
+# edit_list <variable> <titre> <texte> <addrs|hostports> [obligatoire] : ajouter, modifier, retirer
+edit_list() {
+  local var=$1 title=$2 text=$3 kind=$4 required=${5:-} choice a d old action x rest example
+  local -a items
+  example="IPv4 ou plage CIDR, ex. 192.168.3.1"
+  [ "$kind" = hostports ] && example="adresse:port, ex. 192.168.10.8:587"
+  while :; do
+    items=()
+    for a in ${!var}; do d=$(note "$var" "$a"); items+=("$a" "${d:-· sans description ·}"); done
+    items+=("+" "Ajouter une adresse")
+    if ! choice=$(wt --title "$title" --ok-label "Choisir" --cancel-label "Terminé" --menu \
+      "$text\n\n\\Zb$(count "$var") adresse(s)\\ZB   Entrée : modifier ou retirer   Échap : terminer" \
+      $(menu_size "$text" $(( ${#items[@]} / 2 ))) "${items[@]}"); then
+      if [ -n "$required" ] && [ -z "${!var}" ]; then msg "$title" "Au moins une adresse est obligatoire."; continue; fi
+      return 0
+    fi
+    if [ "$choice" = "+" ]; then
+      a="" d=""
+      while :; do
+        form_entry "$title > ajouter" "Nouvelle adresse ($example).\nLa description aide à reconnaître le poste ou l'équipement." \
+          "$a" "$d" || continue 2
+        a=$FORM_ADDR d=$FORM_DESC
+        check_entry "$title" "$kind" "$var" "$a" "" && break
+      done
+      printf -v "$var" '%s' "$(norm "${!var} $a")"
+      NOTES["$var|$a"]=$d
+      PENDING=1
+      continue
+    fi
+    old=$choice
+    action=$(wt --title "$title > $old" --ok-label "Choisir" --menu "\\Zb$old\\ZB  $(note "$var" "$old")" 11 76 2 \
+      "M" "Modifier l'adresse ou la description" "R" "Retirer cette adresse") || continue
+    case $action in
+      M)
+        a=$old d=$(note "$var" "$old")
+        while :; do
+          form_entry "$title > modifier" "Adresse ($example) et description." "$a" "$d" || continue 2
+          a=$FORM_ADDR d=$FORM_DESC
+          check_entry "$title" "$kind" "$var" "$a" "$old" && break
+        done
+        rest=""
+        for x in ${!var}; do if [ "$x" = "$old" ]; then rest+="$a "; else rest+="$x "; fi; done
+        printf -v "$var" '%s' "$(norm "$rest")"
+        NOTES["$var|$old"]=""
+        NOTES["$var|$a"]=$d
+        PENDING=1
+        ;;
+      R)
+        if [ -n "$required" ] && [ "$(count "$var")" -le 1 ]; then
+          msg "$title" "Dernière adresse de la liste : ajouter d'abord la nouvelle, puis retirer celle-ci."; continue
+        fi
+        confirm "$title" "Retirer $old ($(note "$var" "$old")) de la liste ?" || continue
+        rest=""
+        for x in ${!var}; do [ "$x" = "$old" ] || rest+="$x "; done
+        printf -v "$var" '%s' "$(norm "$rest")"
+        NOTES["$var|$old"]=""
+        PENDING=1
+        ;;
+    esac
+  done
+}
+
 # ---------- État courant ----------
 load_state() {
-  ADMINS="" WALL="" SYSLOG_TCP="" SYSLOG_TLS="" SYSLOG_UDP="" BACKUP_SERVER="" DNS="" NTP="" LAN_OUT=""
+  ADMINS="" WALL="" TRIVY="" SYSLOG_TCP="" SYSLOG_TLS="" SYSLOG_UDP="" BACKUP_SERVER="" DNS="" NTP="" LAN_OUT=""
   INTERNET_PORTS="443,8443" LAN_IF="" SSH_PORT="22"
   DCS="" SMTP="" XGS_API="" CROWDSEC="" OTHER_OUT=""
   . "$FW"
@@ -128,35 +293,68 @@ load_state() {
   for v in ADMINS SYSLOG_TCP SYSLOG_TLS; do [ "${!v}" = "$PRIVATE" ] && printf -v "$v" ''; done
   DCS=${DCS:-$DNS}
   NEW_KEYS="" BACKUP_KEY="" PENDING=0
+  load_notes
 }
 VM_IP=$(envget WEB_BIND)
 
 # ---------- Sections ----------
 s_inbound() {
-  input ADMINS "Accès entrants > administration" \
-    "Postes DSI autorisés à administrer (SSH + interface web).\n2 ou 3 postes, avec réservation DHCP. Adresses ou plages CIDR, séparées par des espaces." addrs 1 || return 0
-  input WALL "Accès entrants > écran mural" "Adresse de l'écran mural (interface web seule). Vide si aucun." addrs || return 0
-  input SYSLOG_TCP "Accès entrants > syslog 514/TCP" \
-    "Sources syslog en clair, 514/TCP :\nfirewall (Sophos XGS ou autre), Vectra, Varonis installé sur site. Vide si aucune." addrs || return 0
-  input SYSLOG_TLS "Accès entrants > syslog 6514/TCP chiffré" \
-    "Sources syslog chiffré (TLS), 6514/TCP :\ncontrôleurs de domaine et serveurs de fichiers (NXLog)." addrs || return 0
-  input SYSLOG_UDP "Accès entrants > syslog 514/UDP" \
-    "Sources syslog en UDP : seulement pour un équipement qui ne sait pas envoyer en TCP." addrs || return 0
-  PENDING=1
+  local c
+  while :; do
+    c=$(wt --title "Accès entrants" --cancel-label "Retour" --menu \
+      "Adresses autorisées à joindre la VM, chacune avec sa description.\nEntrée : ouvrir une liste   Échap : revenir au menu" 14 78 6 \
+      "1" "Administration   $(count ADMINS) adr.  SSH + interface web (postes DSI)" \
+      "2" "Écran mural      $(count WALL) adr.  interface web seule" \
+      "3" "Syslog 514/TCP   $(count SYSLOG_TCP) adr.  pare-feu, Vectra, Varonis sur site" \
+      "4" "Syslog 6514/TLS  $(count SYSLOG_TLS) adr.  NXLog (DC, serveurs de fichiers)" \
+      "5" "Syslog 514/UDP   $(count SYSLOG_UDP) adr.  équipement sans TCP" \
+      "6" "Serveurs Trivy   $(count TRIVY) adr.  rapports de vulnérabilités (443)") || return 0
+    case $c in
+      1) edit_list ADMINS "Accès entrants > administration" \
+           "Postes DSI autorisés à administrer (SSH + interface web).\n2 ou 3 postes, avec réservation DHCP." addrs 1 ;;
+      2) edit_list WALL "Accès entrants > écran mural" "Écran mural (interface web seule)." addrs ;;
+      3) edit_list SYSLOG_TCP "Accès entrants > syslog 514/TCP" \
+           "Sources syslog en clair, 514/TCP : pare-feu (Sophos XGS ou autre), Vectra, Varonis sur site." addrs ;;
+      4) edit_list SYSLOG_TLS "Accès entrants > syslog 6514/TCP chiffré" \
+           "Sources syslog chiffré (TLS), 6514/TCP : contrôleurs de domaine et serveurs de fichiers (NXLog)." addrs ;;
+      5) edit_list SYSLOG_UDP "Accès entrants > syslog 514/UDP" \
+           "Sources syslog en UDP : seulement pour un équipement qui ne sait pas envoyer en TCP." addrs ;;
+      6) edit_list TRIVY "Accès entrants > serveurs Trivy" \
+           "Serveurs équipés de l'agent Trivy du Mini-SOC : envoi de leurs rapports en 443/TCP (API seule,\njeton propre à chaque serveur, créé dans Intégrations › Trivy)." addrs ;;
+    esac
+  done
 }
 s_outbound() {
-  input DNS "Accès sortants > DNS" "Serveurs DNS de la VM." addrs 1 || return 0
-  input NTP "Accès sortants > heure" "Serveurs de temps (en général les contrôleurs de domaine)." addrs 1 || return 0
-  input DCS "Accès sortants > annuaire" "Contrôleurs de domaine joints en LDAPS (636/TCP)." addrs || return 0
-  input SMTP "Accès sortants > messagerie" "Relais SMTP (adresse:port, ex. 192.168.10.8:587)." hostports || return 0
-  input XGS_API "Accès sortants > Sophos XGS" "Interface d'API du XGS (4444/TCP) : lecture des règles, blocage d'IP." addrs || return 0
-  input CROWDSEC "Accès sortants > CrowdSec" "Serveur CrowdSec (adresse:port, ex. 192.168.10.9:8080)." hostports || return 0
-  input OTHER_OUT "Accès sortants > autres (LAN)" \
-    "Autres destinations du LAN (adresse:port) : Ollama 11434, Cyberwatch 443, Brain Vectra 443…" hostports || return 0
-  input INTERNET_PORTS "Accès sortants > SaaS / Internet" \
-    "Ports Internet autorisés aux connecteurs SaaS (séparés par des virgules).\n443 : Microsoft 365, Varonis, Bitdefender, IA, veille. 8443 : HarfangLab.\nLe tri par nom de domaine se fait sur le XGS (doc 04 § 6.4)." text 1 || return 0
-  INTERNET_PORTS=$(echo "$INTERNET_PORTS" | tr ' ' ',')
-  PENDING=1
+  local c
+  while :; do
+    c=$(wt --title "Accès sortants" --cancel-label "Retour" --menu \
+      "Destinations que la VM et les conteneurs peuvent joindre, chacune avec sa description.\nEntrée : ouvrir une liste   Échap : revenir au menu" 16 78 8 \
+      "1" "DNS              $(count DNS) adr." \
+      "2" "Heure (NTP)      $(count NTP) adr.  en général les contrôleurs de domaine" \
+      "3" "Annuaire LDAPS   $(count DCS) adr.  contrôleurs de domaine, 636/TCP" \
+      "4" "Messagerie       $(count SMTP) adr.  relais SMTP (adresse:port)" \
+      "5" "Sophos XGS API   $(count XGS_API) adr.  4444/TCP : règles, blocage d'IP" \
+      "6" "CrowdSec         $(count CROWDSEC) adr.  serveur (adresse:port)" \
+      "7" "Autres (LAN)     $(count OTHER_OUT) adr.  Ollama, Cyberwatch, Brain Vectra…" \
+      "8" "SaaS / Internet  ports $INTERNET_PORTS") || return 0
+    case $c in
+      1) edit_list DNS "Accès sortants > DNS" "Serveurs DNS de la VM." addrs 1 ;;
+      2) edit_list NTP "Accès sortants > heure" "Serveurs de temps (en général les contrôleurs de domaine)." addrs 1 ;;
+      3) edit_list DCS "Accès sortants > annuaire" "Contrôleurs de domaine joints en LDAPS (636/TCP)." addrs ;;
+      4) edit_list SMTP "Accès sortants > messagerie" "Relais SMTP (adresse:port, ex. 192.168.10.8:587)." hostports ;;
+      5) edit_list XGS_API "Accès sortants > Sophos XGS" \
+           "Interface d'API du XGS (4444/TCP) : lecture des règles, blocage d'IP." addrs ;;
+      6) edit_list CROWDSEC "Accès sortants > CrowdSec" "Serveur CrowdSec (adresse:port, ex. 192.168.10.9:8080)." hostports ;;
+      7) edit_list OTHER_OUT "Accès sortants > autres (LAN)" \
+           "Autres destinations du LAN (adresse:port) : Ollama 11434, Cyberwatch 443, Brain Vectra 443…" hostports ;;
+      8)
+        input INTERNET_PORTS "Accès sortants > SaaS / Internet" \
+          "Ports Internet autorisés aux connecteurs SaaS (séparés par des virgules).\n443 : Microsoft 365, Varonis, Bitdefender, IA, veille. 8443 : HarfangLab.\nLe tri par nom de domaine se fait sur le XGS (doc 04 § 6.4)." text 1 || continue
+        INTERNET_PORTS=$(echo "$INTERNET_PORTS" | tr ' ' ',')
+        PENDING=1
+        ;;
+    esac
+  done
 }
 s_backup() {
   input BACKUP_SERVER "Sauvegarde > serveur" \
@@ -204,11 +402,12 @@ lan_out() { norm "$(with_port "$DCS" 636) $SMTP $(with_port "$XGS_API" 4444) $CR
 summary() {  # appelée dans $(…) : ne modifie aucune variable
   cat <<EOF
 ENTRANT
-  Administration (SSH, web) : $ADMINS
-  Écran mural               : ${WALL:-aucun}
-  Syslog 514/TCP            : ${SYSLOG_TCP:-aucune}
-  Syslog 6514/TCP (TLS)     : ${SYSLOG_TLS:-aucune}
-  Syslog 514/UDP            : ${SYSLOG_UDP:-aucune}
+  Administration (SSH, web) : $(described ADMINS)
+  Écran mural               : $(w=$(described WALL); echo "${w:-aucun}")
+  Serveurs Trivy (443)      : $(w=$(described TRIVY); echo "${w:-aucun}")
+  Syslog 514/TCP            : $(w=$(described SYSLOG_TCP); echo "${w:-aucune}")
+  Syslog 6514/TCP (TLS)     : $(w=$(described SYSLOG_TLS); echo "${w:-aucune}")
+  Syslog 514/UDP            : $(w=$(described SYSLOG_UDP); echo "${w:-aucune}")
   Sauvegarde (SSH, rsync)   : ${BACKUP_SERVER:-non configurée}
 SORTANT
   DNS / NTP                 : $DNS / $NTP
@@ -223,15 +422,17 @@ s_apply() {
   if [ -z "$ADMINS" ]; then msg "Appliquer" "Renseigner d'abord les postes DSI (Entrants)."; return 0; fi
   LAN_OUT=$(lan_out)
   confirm "Appliquer > récapitulatif" "$(summary)\n\nAppliquer ? Retour arrière automatique dans $((CONFIRM_DELAY / 60)) min sans confirmation." || return 0
-  for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS"; do if [ -f "$f" ]; then cp -p "$f" "$f.prev"; fi; done
+  for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS" "$NOTES_FILE"; do if [ -f "$f" ]; then cp -p "$f" "$f.prev"; fi; done
   cat > "$FW" <<EOF
 # Pare-feu du Mini-SOC : adresses autorisées. Écrit par sudo minisoc-setup le $(date '+%d/%m/%Y %H:%M').
 # Après modification à la main : sudo systemctl restart minisoc-firewall
+# Description de chaque adresse : /etc/minisoc/firewall-notes.conf
 LAN_IF="$LAN_IF"
 
 # --- Entrant ---
 ADMINS="$ADMINS"
 WALL="$WALL"
+TRIVY="$TRIVY"
 SYSLOG_TCP="$SYSLOG_TCP"
 SYSLOG_TLS="$SYSLOG_TLS"
 SYSLOG_UDP="$SYSLOG_UDP"
@@ -245,6 +446,7 @@ LAN_OUT="$LAN_OUT"
 INTERNET_PORTS="$INTERNET_PORTS"
 EOF
   chmod 640 "$FW"
+  save_notes
   cat > "$SETUP" <<EOF
 # Réponses de sudo minisoc-setup, proposées au prochain lancement
 DCS="$DCS"
@@ -302,7 +504,7 @@ s_cert() {
   tmp=$(mktemp -d)
   case "$cert_in" in
     *.pfx|*.p12|*.PFX|*.P12)
-      pfx_pass=$(wt --title "Certificat web > mot de passe" --passwordbox "Mot de passe du fichier PFX :" 10 76) || { rm -rf "$tmp"; return 0; }
+      pfx_pass=$(wt --title "Certificat web > mot de passe" --insecure --passwordbox "Mot de passe du fichier PFX :" 10 76) || { rm -rf "$tmp"; return 0; }
       for legacy in "" "-legacy"; do
         if PFX_PASS=$pfx_pass openssl pkcs12 $legacy -in "$cert_in" -passin env:PFX_PASS -nokeys -out "$tmp/crt" 2>/dev/null \
           && PFX_PASS=$pfx_pass openssl pkcs12 $legacy -in "$cert_in" -passin env:PFX_PASS -nocerts -nodes -out "$tmp/key" 2>/dev/null; then
@@ -436,7 +638,7 @@ if [ "$INITIAL" = 1 ] && confirm "Bienvenue" "Première configuration : le pare-
 fi
 while :; do
   flag=""; [ "$PENDING" = 1 ] && flag="  * modifications non appliquées"
-  choice=$(wt --title "[ MINI-SOC ]" --cancel-button "Quitter" --menu "Hôte $HOST · $VM_IP$flag\nUne lettre ou les flèches, puis Entrée." 23 78 12 \
+  choice=$(wt --title "[ MINI-SOC ]" --ok-label "Ouvrir" --cancel-label "Quitter" --menu "Hôte \Zb$HOST\ZB · $VM_IP\Z3$flag\Zn\nUne lettre ou les flèches, puis Entrée. Échap : quitter." 19 78 11 \
     "E" "Entrants          postes DSI, écran mural, sources syslog" \
     "S" "Sortants          DNS, NTP, AD, SMTP, XGS, CrowdSec, SaaS" \
     "B" "Sauvegarde        serveur de récupération et sa clé" \
@@ -449,12 +651,12 @@ while :; do
     "T" "Tableau de bord   état de la VM, conteneurs, sauvegardes" \
     "Q" "Quitter") || choice=Q
   case $choice in
-    E) s_inbound ;; S) s_outbound ;; B) s_backup ;; K) s_keys ;; P) s_ssh_port ;; A) s_apply ;;
+    E) s_inbound; offer_apply ;; S) s_outbound; offer_apply ;; B) s_backup ;; K) s_keys ;; P) s_ssh_port ;; A) s_apply ;;
     C) s_cert ;; U) s_accounts ;; F) s_files ;; T) s_status ;;
     Q)
       if [ "$PENDING" = 1 ] && confirm "Quitter" "Des modifications ne sont pas appliquées. Les appliquer maintenant ?"; then
         s_apply; continue
       fi
-      clear; printf '%s' "$G"; [ -f "$BANNER" ] && cat "$BANNER"; printf '%s  Fin de session.%s\n' "$N" ""; exit 0 ;;
+      clear; printf '%s' "$C"; [ -f "$BANNER" ] && cat "$BANNER"; printf '%s  Fin de session.%s\n' "$N" ""; exit 0 ;;
   esac
 done

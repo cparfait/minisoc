@@ -8,7 +8,7 @@ from minisoc.rules import Rule, RuleError, load_rules
 from minisoc.rules.engine import RuleSet, entity_key, render_title
 from minisoc.rules.filters import Params, matches, to_sql
 from minisoc.rules.model import Condition
-from minisoc.rules.sql import sequence_query, threshold_query
+from minisoc.rules.sql import LATE_SECONDS, USER_KEY, sequence_query, threshold_query
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -81,21 +81,27 @@ def test_condition_parsing():
 
 def test_threshold_query_groups_and_excludes_empty_values():
     sql, params = threshold_query(rule("UC-02a"))
-    assert "uniqExact(source_ip) AS value" in sql
-    assert "user_name AS g0" in sql and "user_name != ''" in sql
-    assert 3600 in params.values() and 20 in params.values()
+    assert "uniqExact(source_ip) OVER (PARTITION BY" in sql  # fenêtre glissante exacte
+    assert f"{USER_KEY} AS g0" in sql and "user_name != ''" in sql  # compte unifié
+    assert "RANGE BETWEEN 3600000 PRECEDING" in sql and 20 in params.values()
+    assert 3600 + LATE_SECONDS in params.values()  # retard toléré des sources
 
 
 def test_global_threshold_query():
     sql, _ = threshold_query(rule("UC-02b"))
-    assert "'global' AS g0" in sql
+    assert "'global' AS g0" in sql and "PARTITION BY" not in sql
 
 
 def test_sequence_query_joins_on_key():
     r = rule("UC-03a")
     sql, _ = sequence_query(r)
-    assert "source_ip IN (" in sql and "HAVING count() >=" in sql
+    assert "HAVING count() >=" in sql and "INNER JOIN" in sql
+    # Ordre : seuls les « first » antérieurs à l'événement « then », dans la fenêtre `within` qui le précède
+    assert "arrayCount(x -> x < t.ts AND x >= t.ts - toIntervalSecond(" in sql
+    assert "lower(source_ip)" not in sql  # adresse : comparée telle quelle
     assert r.group_by == ["source.ip"]
+    sql_user, _ = sequence_query(rule("UC-03b"))
+    assert f"{USER_KEY} AS g0" in sql_user  # compte : clé unifiée (toutes formes du nom, sans casse)
 
 
 def test_ruleset_fallback_only_when_no_specific_rule():

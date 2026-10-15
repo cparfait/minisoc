@@ -1,0 +1,20 @@
+id: UC-58
+name: Machine sans antivirus
+type: match
+severity: medium
+category: hygiene
+description: >
+  Une machine Windows ou macOS en service (vue par NinjaOne ou par son agent HarfangLab dans les 7 derniers jours)
+  n'est pas protégée par l'antivirus Bitdefender : absente de GravityZone, ou seulement « découverte » sans agent
+  installé. Constat établi depuis au moins 24 heures, liste GravityZone lue en entier. Serveur : sévérité haute.
+  L'alerte se clôt d'elle-même quand la machine apparaît dans GravityZone ou n'est plus en service.
+# Filtre jamais vérifié : la règle sert de modèle aux alertes créées par la vérification de couverture
+# (minisoc/coverage.py, chaque heure)
+filter:
+  event.module: {eq: "__couverture__"}
+group_by: [host.name]
+title: "Pas d'antivirus sur {host.name} : {threat.name}"
+dedup_window: 30d
+storm_limit: 10
+mitre: [T1562.001]
+playbook: playbooks/coverage-gap.md

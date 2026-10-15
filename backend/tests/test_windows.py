@@ -61,7 +61,7 @@ def test_lockout_uses_caller_computer():
 def test_spraying_rule_query():
     rule = next(r for r in load_rules(RULES_DIR) if r.id == "UC-21")
     sql, params = threshold_query(rule)
-    assert "uniqExact(user_name) AS value" in sql and "reason IN" in sql
+    assert "uniqExact(user_name) OVER" in sql and "reason IN" in sql
 
 
 def test_non_windows_json_is_not_misparsed():

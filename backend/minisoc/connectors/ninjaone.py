@@ -141,13 +141,20 @@ class NinjaClient:
         return rows
 
 
-def antivirus_state(products: list[dict]) -> str:
-    """« ok », « outdated » (définitions obsolètes), « inactive » (aucun produit actif) ou « unknown »."""
+NO_PRODUCT = {"NONE", "UNKNOWN", "N/A"}
+
+
+def antivirus_state(products: list[dict], server: bool = False) -> str:
+    """« ok », « outdated » (définitions obsolètes), « inactive » (aucun produit actif) ou « unknown ».
+
+    Fiable seulement quand NinjaOne voit un produit réel : sur Windows Server (pas de Centre de sécurité) et pour un
+    produit « NONE », l'état est inconnu. L'absence d'antivirus est établie par GravityZone (minisoc/coverage.py)."""
+    products = [p for p in products if str(p.get("productName") or "").strip().upper() not in NO_PRODUCT]
     if not products:
         return "unknown"
     active = [p for p in products if str(p.get("productState") or "").upper() == "ON"]
     if not active:
-        return "inactive"
+        return "unknown" if server else "inactive"
     if all("out" in str(p.get("definitionStatus") or "").lower() for p in active):
         return "outdated"
     return "ok"
@@ -158,6 +165,7 @@ def posture(device: dict, health: dict, products: list[dict]) -> dict:
         "name": device.get("systemName") or device.get("displayName") or str(device.get("id")),
         "class": device.get("nodeClass") or "",
         "offline": bool(device.get("offline")),
+        "last_contact": float(device.get("lastContact") or 0),  # secondes epoch (couverture antivirus et EDR)
         "ip": (device.get("ipAddresses") or [""])[0],
         "critical": int(health.get("criticalVulnerabilityCount") or 0),
         "high": int(health.get("highVulnerabilityCount") or 0),
@@ -165,7 +173,7 @@ def posture(device: dict, health: dict, products: list[dict]) -> dict:
         "pending": int(health.get("pendingOSPatchesCount") or 0),
         "failed": int(health.get("failedOSPatchesCount") or 0),
         "threats": int(health.get("activeThreatsCount") or 0),
-        "antivirus": antivirus_state(products),
+        "antivirus": antivirus_state(products, server="SERVER" in str(device.get("nodeClass") or "").upper()),
         "products": ", ".join(str(p.get("productName") or "?") for p in products)[:200],
     }
 
@@ -180,19 +188,26 @@ def alert_key(alert: dict) -> str:
     )
 
 
-def changes(device_id, now: dict, before: dict | None) -> list[dict]:
-    """Événements de changement d'état (rien au premier passage, sauf ce qui est déjà grave)."""
-    before = before or {}
+def changes(device_id, now: dict, before: dict | None, baseline: bool = False) -> list[dict]:
+    """Événements de changement d'état.
+
+    - premier relevé du parc (`baseline`) : état des lieux sans alerte (page Veille), sauf menace active ;
+    - machine vue pour la première fois ensuite : seulement ce qui est grave (menace, antivirus coupé), pas le stock
+      de vulnérabilités ni les correctifs en échec ;
+    - ensuite : les aggravations par rapport au relevé précédent.
+    """
     out = []
-    first = not before
-    if now["antivirus"] in ("inactive", "outdated") and before.get("antivirus") != now["antivirus"]:
-        out.append({"kind": "antivirus_" + now["antivirus"]})
-    if now["threats"] > int(before.get("threats") or 0):
+    if now["threats"] > int((before or {}).get("threats") or 0):
         out.append({"kind": "active_threat"})
-    if now["critical"] > int(before.get("critical") or 0):
-        out.append({"kind": "critical_vulnerabilities", "previous": 0 if first else int(before.get("critical") or 0)})
-    if now["failed"] > int(before.get("failed") or 0):
-        out.append({"kind": "patches_failed"})
+    if baseline:
+        return [{**c, "device_id": device_id, "device": now} for c in out]
+    if now["antivirus"] in ("inactive", "outdated") and (before or {}).get("antivirus") != now["antivirus"]:
+        out.append({"kind": "antivirus_" + now["antivirus"]})
+    if before:
+        if now["critical"] > int(before.get("critical") or 0):
+            out.append({"kind": "critical_vulnerabilities", "previous": int(before.get("critical") or 0)})
+        if now["failed"] > int(before.get("failed") or 0):
+            out.append({"kind": "patches_failed"})
     return [{**c, "device_id": device_id, "device": now} for c in out]
 
 
@@ -253,7 +268,7 @@ class NinjaOneConnector:
             device_id = device.get("id")
             state = posture(device, health.get(device_id, {}), products.get(device_id, []))
             current[str(device_id)] = json.dumps(state, ensure_ascii=False)
-            for change in changes(device_id, state, previous.get(str(device_id))):
+            for change in changes(device_id, state, previous.get(str(device_id)), baseline=not previous):
                 events.append(
                     json.dumps(
                         {"type": "posture", **change, "console": console_url(cfg, device_id)}, ensure_ascii=False

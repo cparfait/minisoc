@@ -113,7 +113,8 @@ async def send_digest(sessions, redis, store, rules, settings, to: list[str] | N
     from minisoc.notify.email import send_email
     from minisoc.settings_store import store as settings_store
 
-    sources = await stats.sources_status(redis, rules.absence_rules)
+    async with sessions() as session:
+        sources = await stats.sources_status(redis, rules.absence_rules, await settings_store.load(session))
     try:
         attackers = (await stats.auth_activity(store, top=5))["top_attackers"]
     except Exception:  # noqa: BLE001 - le résumé part même si la base des événements est indisponible

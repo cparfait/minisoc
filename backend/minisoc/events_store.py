@@ -27,8 +27,10 @@ CREATE TABLE IF NOT EXISTS events (
     destination_ip   String,
     destination_port UInt16,
     user_name        String,
+    user_key         String,
     user_roles       LowCardinality(String),
     host_name        String,
+    host_key         String,
     host_ip          String,
     network_service  LowCardinality(String),
     rule_name        String,
@@ -46,6 +48,8 @@ CREATE TABLE IF NOT EXISTS events (
     INDEX idx_source_ip source_ip TYPE bloom_filter GRANULARITY 4,
     INDEX idx_user user_name TYPE bloom_filter GRANULARITY 4,
     INDEX idx_host host_name TYPE bloom_filter GRANULARITY 4,
+    INDEX idx_user_key user_key TYPE bloom_filter GRANULARITY 4,
+    INDEX idx_host_key host_key TYPE bloom_filter GRANULARITY 4,
     INDEX idx_event_id event_id TYPE bloom_filter GRANULARITY 4
 )
 ENGINE = MergeTree
@@ -64,6 +68,10 @@ MIGRATIONS = (
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS user_roles LowCardinality(String) AFTER user_name",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS dns_query String AFTER file_path",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS dns_domain LowCardinality(String) AFTER dns_query",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS user_key String AFTER user_name",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS host_key String AFTER host_name",
+    "ALTER TABLE events ADD INDEX IF NOT EXISTS idx_user_key user_key TYPE bloom_filter GRANULARITY 4",
+    "ALTER TABLE events ADD INDEX IF NOT EXISTS idx_host_key host_key TYPE bloom_filter GRANULARITY 4",
 )
 
 QUERY_SETTINGS = {"max_execution_time": 15}

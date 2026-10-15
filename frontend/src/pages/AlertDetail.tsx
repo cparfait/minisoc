@@ -34,6 +34,7 @@ export default function AlertDetail() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [waitingReason, setWaitingReason] = useState("utilisateur");
+  const [host, setHost] = useState<string | null>(null);
   const assignees = useAssignees();
 
   if (!alert) return <ErrorBanner error={error} />;
@@ -95,9 +96,9 @@ export default function AlertDetail() {
       </p>
       <ErrorBanner error={error} />
 
-      <ImpactedHosts hosts={alert.hosts} events={alert.events} />
-      <Triage events={alert.events} />
-      <ToolTriage events={alert.events} />
+      <ImpactedHosts hosts={alert.hosts} events={alert.events} selected={host} onSelect={setHost} />
+      <Triage events={alert.events} host={host} onReset={() => setHost(null)} />
+      <ToolTriage events={alert.events} host={host} />
       <DerivedDetails details={alert.details} />
 
       {qualification && (

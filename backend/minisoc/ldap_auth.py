@@ -302,6 +302,41 @@ def sensitive_accounts(cfg: dict[str, Any]) -> dict[str, list[dict]]:
         conn.unbind()
 
 
+USER_FILTER = "(&(objectCategory=person)(objectClass=user))"
+USER_ATTRIBUTES = ["sAMAccountName", "userPrincipalName", "mail", "displayName", "proxyAddresses"]
+MAX_USERS = 50000
+
+
+def user_identities(cfg: dict[str, Any]) -> list[dict]:
+    """Formes du nom de chaque compte (identifiant, UPN, adresses de messagerie, nom affiché) : table des alias
+    (minisoc/identity.py). Lecture seule. Bloquant : asyncio.to_thread."""
+    conn = _service_connection(cfg)
+    try:
+        out = []
+        entries = conn.extend.standard.paged_search(cfg["ldap_base_dn"], USER_FILTER, SUBTREE,
+                                                    attributes=USER_ATTRIBUTES, paged_size=500, generator=True)
+        for entry in entries:
+            if entry.get("type") != "searchResEntry":
+                continue
+            attrs = entry.get("attributes") or {}
+            sam = str(_single(attrs.get("sAMAccountName")) or "").strip()
+            if not sam:
+                continue
+            proxies = attrs.get("proxyAddresses") or []
+            out.append({
+                "sam": sam,
+                "upn": str(_single(attrs.get("userPrincipalName")) or ""),
+                "mail": str(_single(attrs.get("mail")) or ""),
+                "display": str(_single(attrs.get("displayName")) or ""),
+                "proxies": [str(x) for x in (proxies if isinstance(proxies, list) else [proxies])][:50],
+            })
+            if len(out) >= MAX_USERS:
+                break
+        return out
+    finally:
+        conn.unbind()
+
+
 COMPUTER_FILTER = "(objectCategory=computer)"
 COMPUTER_ATTRIBUTES = ["cn", "dNSHostName", "description", "operatingSystem", "distinguishedName", "managedBy"]
 MAX_COMPUTERS = 10000

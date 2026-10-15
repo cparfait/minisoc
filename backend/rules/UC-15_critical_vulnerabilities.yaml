@@ -2,6 +2,7 @@ id: UC-15
 name: Vulnérabilités critiques non corrigées
 type: match
 severity: from_event
+category: hygiene
 description: >
   NinjaOne signale de nouvelles vulnérabilités critiques non corrigées sur un appareil (sévérité haute pour un
   serveur, moyenne pour un poste). Les correctifs en attente sont indiqués ; vérifier en priorité les serveurs et les

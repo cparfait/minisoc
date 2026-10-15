@@ -46,6 +46,7 @@ On compense par six règles :
 | IP fixe de la VM / masque / passerelle | `192.168.10.50/24`, passerelle `192.168.10.1` |
 | Postes DSI autorisés à administrer (SSH + web) | `192.168.10.21`, `192.168.10.22` (réservations DHCP **obligatoires**) |
 | Écran mural | `192.168.10.40` |
+| Serveurs analysés par l'agent Trivy (rapports en 443) | serveurs Docker ou Linux à suivre |
 | Serveurs DNS / NTP (contrôleurs de domaine) | `192.168.10.2`, `192.168.10.3` |
 | Sophos XGS (syslog + API 4444) | `192.168.10.1` |
 | Serveurs envoyant leurs journaux Windows (NXLog) | contrôleurs de domaine, serveurs de fichiers |
@@ -125,8 +126,9 @@ ses serveurs de temps.
 
 Accès Internet nécessaires pendant l'installation (en 80 et 443) : `deb.debian.org`, `security.debian.org`,
 `download.docker.com`, `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com`,
-`production.cloudfront.docker.com`, `ghcr.io`,
-`registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`. Sans accès direct, renseigner `HTTP_PROXY` dans
+`production.cloudfront.docker.com`, `ghcr.io`, `dl-cdn.alpinelinux.org` (correctifs Alpine des images, en 443),
+`registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`. Les conteneurs ne sortent qu'en 443 : `deb.debian.org`
+doit donc aussi l'être en HTTPS (correctifs Debian de l'image de l'application). Sans accès direct, renseigner `HTTP_PROXY` dans
 `vm.conf`. Si le réseau coupe CloudFront (`connection reset by peer` sur `production.cloudfront.docker.com`),
 renseigner `DOCKER_MIRROR='https://mirror.gcr.io'` (miroir officiel de Docker Hub chez Google) et autoriser
 `mirror.gcr.io`.
@@ -626,6 +628,14 @@ filtre aussi :
 sudo docker compose exec api python -m minisoc.cli create-display-token --name "Écran DSI" --ip 192.168.10.40
 ```
 
+Analyse Trivy de la VM : le service `minisoc-trivy` (installé par l'ISO et par `minisoc-update`) analyse les
+images de l'application et les paquets Debian chaque lundi matin (`minisoc-trivy.timer`), après chaque mise à
+jour et à la demande depuis Intégrations › Trivy (`minisoc-trivy.path`). Il tourne sur l'hôte : chaque image est
+exportée puis lue par un conteneur Trivy jetable, sans socket Docker ni privilège. Rapport et état dans
+`/var/lib/minisoc/trivy` (lu par le worker), journal : `sudo journalctl -u minisoc-trivy`. Serveurs équipés de
+l'agent : jeton par serveur dans Intégrations › Trivy, adresse dans `sudo minisoc-setup` › Entrants › Serveurs
+Trivy (variable `TRIVY` du pare-feu, 443/TCP).
+
 ---
 
 ## 8. Sauvegardes à l'abri d'une compromission de la VM
@@ -710,7 +720,17 @@ En plus :
 | Audit de durcissement | trimestriel | `sudo lynis audit system` : traiter les avertissements ; viser un indice ≥ 75 |
 
 **Mise à jour du Mini-SOC.** Chaque construction (`deploy/iso/build-iso.sh`) produit, à côté de l'ISO, un paquet
-`build/iso/minisoc-update-<version>.tar.gz` (mêmes fichiers, sans les réglages du site). Depuis un poste DSI :
+`build/iso/minisoc-update-<version>.tar.gz` (mêmes fichiers, sans les réglages du site).
+
+Pour produire **le paquet de mise à jour seul**, sans télécharger ni reconstruire l'ISO (ni `vm.conf`, ni clés
+SSH nécessaires ; les ISO existantes sont conservées), depuis la racine du projet (PowerShell) :
+
+```powershell
+docker run --rm -e MINISOC_SEULEMENT_MAJ=1 -v "${PWD}:/work" -w /work debian:13-slim sh deploy/iso/build-iso.sh
+```
+
+(équivalent : `… sh deploy/iso/build-iso.sh --mise-a-jour`). Même version et mêmes fichiers qu'une construction
+complète ; le paquet précédent et son `.sha256` sont remplacés. Puis, depuis le poste DSI :
 
 ```bash
 scp build/iso/minisoc-update-<version>.tar.gz adminsoc@<IP>:/tmp/
@@ -737,6 +757,12 @@ tar -xzf /tmp/minisoc-update-<version>.tar.gz -C /tmp && sudo bash /tmp/minisoc-
 
 Changement de comportement géré à la mise à jour : les intégrations sont désormais désactivées par défaut ; sur une
 installation existante, celles qui fonctionnaient (données reçues, veille, GeoIP) restent actives.
+
+**Versions des composants** : chaque paquet embarque la dernière version stable des images (PostgreSQL, Redis,
+ClickHouse, Vector, Caddy, Python, Node), vérifiée avant livraison. Une montée de version majeure de PostgreSQL
+(16 → 18…) est faite par `minisoc-update` : export de la base depuis l'ancienne version, import dans la nouvelle,
+sur un **nouveau volume** (`minisoc_pgdata18`…) ; l'ancien volume reste intact (retour arrière automatique en cas
+d'échec). Une fois tout vérifié : `sudo docker volume rm minisoc_pgdata`.
 
 ---
 

@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from minisoc import stats
 from minisoc.api.alerts import _event
 from minisoc.api.deps import ANY_USER, get_db
+from minisoc.db import sessionmaker
 from minisoc.ecs import SEVERITY_NAMES, severity_name
 from minisoc.frameworks import coverage, describe
+from minisoc.identity import IDENTITIES
 from minisoc.models import OPEN_STATUSES, Alert, User
 from minisoc.resolver import annotate
 from minisoc.settings_store import store as settings_store
@@ -35,6 +37,7 @@ async def search_events(
     module: str | None = Query(None, max_length=64),
     category: str | None = Query(None, max_length=64),
     outcome: str | None = Query(None, max_length=16),
+    reason: str | None = Query(None, max_length=64),
     ip: str | None = Query(None, max_length=64),
     user: str | None = Query(None, max_length=128),
     host: str | None = Query(None, max_length=128),
@@ -53,19 +56,20 @@ async def search_events(
     }
     where = ["ts >= {since:DateTime64(3)}", "ts <= {until:DateTime64(3)}"]
     for key, column, value in (("module", "module", module), ("category", "category", category),
-                               ("outcome", "outcome", outcome)):
+                               ("outcome", "outcome", outcome), ("reason", "reason", reason)):
         if value:
             where.append(f"{column} = {{{key}:String}}")
             params[key] = value
     if ip:
         where.append("(source_ip = {ip:String} OR destination_ip = {ip:String} OR host_ip = {ip:String})")
         params["ip"] = ip
-    if user:
-        where.append("user_name = {user:String}")
-        params["user"] = user
-    if host:
-        where.append("host_name = {host:String}")
-        params["host"] = host
+    identities = await IDENTITIES.ensure(request.app.state.redis)
+    if user:  # le compte sous toutes ses formes (identifiant Windows, Microsoft 365, adresse de messagerie)
+        where.append("(user_name = {user:String} OR user_key = {user_key:String})")
+        params.update(user=user, user_key=identities.user(user))
+    if host:  # la machine par son nom complet, court ou son adresse
+        where.append("(host_name = {host:String} OR host_key = {host_key:String})")
+        params.update(host=host, host_key=identities.host(host))
     if q:
         where.append(
             "(positionCaseInsensitiveUTF8(message, {q:String}) > 0"
@@ -150,6 +154,27 @@ async def vpn_stats(
         return {"summary": {}, "services": [], "targeted": [], "recent": [], "clickhouse_error": True}
 
 
+@router.get("/stats/m365")
+async def m365_stats(
+    request: Request,
+    recent: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(ANY_USER),
+):
+    """Comptes Microsoft 365 / Entra ID sur 24 h, pour le tableau de bord."""
+    from minisoc.settings_store import store as settings_store
+    from minisoc.stats import m365_activity
+
+    cfg = await settings_store.load(db)
+    try:
+        result = await m365_activity(request.app.state.store, recent=recent,
+                                     home_countries=cfg.get("home_countries") or ["FR"])
+    except Exception:  # noqa: BLE001 - le tableau de bord reste utilisable sans ClickHouse
+        return {"summary": {}, "reasons": [], "targeted": [], "recent": [], "changes": [], "clickhouse_error": True}
+    result["enabled"] = bool(cfg.get("src_m365_enabled"))
+    return result
+
+
 async def count_open_by_severity(db: AsyncSession) -> dict[str, int]:
     rows = await db.execute(
         select(Alert.severity, func.count()).where(Alert.status.in_(OPEN_STATUSES)).group_by(Alert.severity)
@@ -171,7 +196,9 @@ async def sources(request: Request, _: User = Depends(ANY_USER)):
 
 
 async def sources_status(state) -> list[dict]:
-    return await stats.sources_status(state.redis, state.rules.absence_rules)
+    async with sessionmaker()() as session:
+        cfg = await settings_store.load(session)  # cache de 30 s
+    return await stats.sources_status(state.redis, state.rules.absence_rules, cfg)
 
 
 @router.get("/rules")

@@ -9,8 +9,8 @@ description: >
 # Filtre jamais vérifié : la règle sert de modèle aux alertes créées par minisoc/ioc.py
 filter:
   event.module: {eq: "__chasse_ioc__"}
-group_by: [threat.intel, host.name]
-title: "IOC trouvé : {threat.intel} ({host.name})"
+group_by: [threat.intel, host.name, user.name, source.ip]
+title: "IOC trouvé : {threat.intel} ({host.name|user.name|source.ip})"
 dedup_window: 7d
 storm_limit: 20
 mitre: [T1071]

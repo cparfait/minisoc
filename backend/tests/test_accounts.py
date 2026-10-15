@@ -10,7 +10,7 @@ from minisoc.ldap_auth import _account, _filetime
 from minisoc.parsers import parse_message
 from minisoc.rules import load_rules
 from minisoc.rules.engine import RuleSet
-from minisoc.rules.sql import novelty_query, threshold_query
+from minisoc.rules.sql import HOST_KEY, novelty_query, threshold_query
 
 NOW = datetime(2026, 10, 3, 9, 0, tzinfo=timezone.utc)
 RULES = {r.id: r for r in load_rules(RULES_DIR)}
@@ -127,7 +127,7 @@ def test_file_delete_and_rename_on_file_server():
     read = windows(EventID=4663, SubjectUserName="j.dupont", AccessMask="0x1", ObjectName=r"D:\a.txt")
     assert read.action != "file_delete"
     sql, _ = threshold_query(RULES["UC-32"])
-    assert "uniqExact(file_path)" in sql and "host_name AS g1" in sql
+    assert "uniqExact(file_path)" in sql and f"{HOST_KEY} AS g1" in sql
 
 
 def test_fsrm_ransomware_extension_is_critical():

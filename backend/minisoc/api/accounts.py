@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from minisoc import audit
+from minisoc import audit, identity
 from minisoc.accounts import ad_configured, directory, sync_from_ad, sync_status
 from minisoc.api.deps import ADMIN, ANY_USER, client_ip, get_db
 from minisoc.models import User
@@ -121,6 +121,7 @@ async def accounts_overview(request: Request, db: AsyncSession = Depends(get_db)
         "ad_configured": ad_configured(cfg),
         "ad_sync": bool(cfg.get("accounts_ad_sync", True)),
         "sync": await sync_status(state.redis),
+        "identities": await identity.status(state.redis),  # alias des comptes, adresses des machines
         "patterns": {"admin": cfg.get("accounts_admin_patterns") or [],
                      "service": cfg.get("accounts_service_patterns") or []},
         "lockouts": await _lockouts(state.store, 24),
@@ -134,6 +135,7 @@ async def accounts_sync(request: Request, db: AsyncSession = Depends(get_db), us
     if not ad_configured(cfg):
         raise HTTPException(409, "Compte de service LDAPS non configuré (Paramètres › Annuaire AD)")
     status = await sync_from_ad(request.app.state.redis, cfg)
+    status["identities"] = await identity.sync_users(request.app.state.redis, cfg)  # alias des comptes
     await audit.record(db, actor=user.username, ip=client_ip(request), action="accounts_sync", obj="ad",
                        detail={k: status[k] for k in ("admin", "service", "error")})
     await db.commit()

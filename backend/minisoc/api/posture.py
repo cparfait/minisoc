@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from minisoc import coverage, identity, trivy
 from minisoc import cve as cve_search
-from minisoc.api.deps import ANY_USER, get_db
+from minisoc.api.deps import ANALYST, ANY_USER, get_db
 from minisoc.assets import INDEX, key_for
 from minisoc.connectors import cyberwatch
 from minisoc.connectors.ninjaone import POSTURE_KEY
@@ -33,7 +34,8 @@ async def _risks(request: Request, db: AsyncSession) -> dict:
         info = index.host(name) if kind == "host" else index.account(name)
         return info.criticality if info else None
 
-    return compute_risk(alerts, mitre, criticality, now)
+    categories = {r.id: r.category for r in request.app.state.rules.rules}
+    return compute_risk(alerts, mitre, criticality, now, categories)
 
 
 @router.get("/risk")
@@ -89,16 +91,24 @@ async def cve_fleet(
     limit: int = Query(100, ge=1, le=500),
     _: User = Depends(ANY_USER),
 ):
-    """CVE présentes sur le parc (dernier relevé Cyberwatch), les failles activement exploitées d'abord."""
+    """CVE présentes sur le parc (Cyberwatch, et Trivy pour les images et serveurs), les failles KEV d'abord."""
     redis = request.app.state.redis
     states = cyberwatch.load_states(await redis.hgetall(cyberwatch.STATE_KEY))
+    scans = trivy.load_states(await redis.hgetall(trivy.STATE_KEY))
     kev = set(await redis.hkeys(KEV_KEY))
-    rows = cve_search.fleet(states, kev, limit=100000)
+    rows = cve_search.fleet({**states, **{f"trivy:{k}": v for k, v in scans.items()}}, kev, limit=100000)
     total = len(rows)
     if kev_only:
         rows = [r for r in rows if r["kev"]]
     at = await redis.get(cyberwatch.STATE_AT_KEY)
-    return {"items": rows[:limit], "total": total, "assets": len(states), "at": float(at) if at else None}
+    times = [float(at)] if at else []
+    for st in scans.values():
+        try:
+            times.append(datetime.fromisoformat(st["received_at"]).timestamp())
+        except (KeyError, TypeError, ValueError):
+            continue
+    return {"items": rows[:limit], "total": total, "assets": len(states) + len(scans),
+            "sources": {"cyberwatch": len(states), "trivy": len(scans)}, "at": max(times) if times else None}
 
 
 @router.get("/cve/{code}")
@@ -144,6 +154,7 @@ async def cve_detail(
         "certfr": certfr,
         "cyberwatch": lookup,
         "machines": machines,
+        "trivy": trivy.by_cve(trivy.load_states(await state.redis.hgetall(trivy.STATE_KEY)), code),
         "counts": {s: sum(1 for m in machines if m["status"] == s) for s in ("vulnerable", "ignored", "fixed")},
         "detections": await cve_search.detections(state.store, code),
         "alerts": [
@@ -154,3 +165,17 @@ async def cve_detail(
         "ninjaone": {"available": False,
                      "reason": "L'API NinjaOne ne donne pas les CVE par poste (seulement des nombres par gravité)."},
     }
+
+
+@router.get("/coverage")
+async def coverage_status(request: Request, _: User = Depends(ANY_USER)):
+    """Dernière vérification de couverture (antivirus GravityZone, EDR HarfangLab) et tables d'identités."""
+    return {"coverage": await coverage.status(request.app.state.redis),
+            "identities": await identity.status(request.app.state.redis)}
+
+
+@router.post("/coverage/run", status_code=202)
+async def coverage_run(request: Request, _: User = Depends(ANALYST)):
+    """Vérification de couverture au prochain passage (dans les 10 secondes)."""
+    await request.app.state.redis.set(coverage.NOW_KEY, "1", ex=3600)
+    return {"queued": True}

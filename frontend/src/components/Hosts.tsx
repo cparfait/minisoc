@@ -146,7 +146,12 @@ interface Row extends ImpactedHost {
 }
 
 /** Machines concernées par une alerte, en tête de fiche : tableau compact, serveurs d'abord. */
-export function ImpactedHosts({ hosts, events }: { hosts: ImpactedHost[]; events: EventRow[] }) {
+export function ImpactedHosts({ hosts, events, selected = null, onSelect }: {
+  hosts: ImpactedHost[];
+  events: EventRow[];
+  selected?: string | null;
+  onSelect?: (host: string | null) => void;
+}) {
   const [all, setAll] = useState(false);
   const byHost = new Map<string, { events: number; reference?: string; name: string }>();
   for (const e of events) {
@@ -189,7 +194,10 @@ export function ImpactedHosts({ hosts, events }: { hosts: ImpactedHost[]; events
           <Server size={15} /> {servers} serveur(s) touché(s) : à traiter en priorité.
         </p>
       )}
-      <table className="impacted-table">
+      {onSelect && rows.length > 1 && (
+        <p className="muted small impacted-hint">Cliquer sur une machine pour afficher ses détections dans la levée de doute.</p>
+      )}
+      <table className={`impacted-table ${onSelect ? "selectable" : ""}`}>
         <thead>
           <tr>
             <th>Machine</th>
@@ -203,7 +211,14 @@ export function ImpactedHosts({ hosts, events }: { hosts: ImpactedHost[]; events
         </thead>
         <tbody>
           {shown.map((r) => (
-            <tr key={r.name} className={r.server ? "server" : ""}>
+            <tr
+              key={r.name}
+              className={`${r.server ? "server" : ""} ${selected && selected.toLowerCase() === r.name.toLowerCase() ? "selected" : ""}`}
+              onClick={(e) => {
+                if (!onSelect || (e.target as HTMLElement).closest("a, button")) return;
+                onSelect(selected && selected.toLowerCase() === r.name.toLowerCase() ? null : r.name);
+              }}
+            >
               <td className="nowrap">
                 <span className="impacted-name">
                   {r.server ? <Server size={15} /> : <Monitor size={15} />}

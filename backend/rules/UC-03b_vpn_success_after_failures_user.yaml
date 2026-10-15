@@ -10,6 +10,7 @@ sequence:
     event.module: sophos_xgs
     event.category: authentication
     event.outcome: failure
+    network.service: [ssl_vpn, ipsec, l2tp, user_portal, admin_console]
   min_count: 5
   within: 24h
   then:

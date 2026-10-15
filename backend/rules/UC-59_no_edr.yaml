@@ -1,0 +1,20 @@
+id: UC-59
+name: Machine sans EDR
+type: match
+severity: medium
+category: hygiene
+description: >
+  Une machine Windows ou macOS en service (vue par NinjaOne dans les 7 derniers jours) n'a pas d'agent HarfangLab,
+  ou son agent n'a plus donné signe de vie depuis plus de 7 jours (désinstallé, bloqué, en panne). Sans EDR, une
+  intrusion sur cette machine passe inaperçue. Constat établi depuis au moins 24 heures, liste des agents lue en
+  entier. Serveur : sévérité haute. L'alerte se clôt d'elle-même quand l'agent est de nouveau actif.
+# Filtre jamais vérifié : la règle sert de modèle aux alertes créées par la vérification de couverture
+# (minisoc/coverage.py, chaque heure)
+filter:
+  event.module: {eq: "__couverture__"}
+group_by: [host.name]
+title: "Pas d'EDR sur {host.name} : {threat.name}"
+dedup_window: 30d
+storm_limit: 10
+mitre: [T1562.001]
+playbook: playbooks/coverage-gap.md

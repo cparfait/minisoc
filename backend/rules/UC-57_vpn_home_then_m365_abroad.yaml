@@ -1,0 +1,31 @@
+id: UC-57
+name: VPN en France puis Microsoft 365 depuis l'étranger
+type: sequence
+severity: high
+description: >
+  Un compte est connecté au VPN depuis un pays habituel, puis le même compte se connecte à Microsoft 365 depuis
+  l'étranger moins de 2 heures plus tard : la même personne ne peut pas être aux deux endroits (voyage impossible
+  entre deux sources). Le compte Windows du VPN et l'identifiant Microsoft 365 sont rapprochés par l'annuaire
+  (UPN, adresse de messagerie). Le mot de passe est probablement connu d'un tiers.
+sequence:
+  first:
+    event.module: sophos_xgs
+    event.category: authentication
+    event.outcome: success
+    network.service: [ssl_vpn, ipsec, l2tp]
+    source.geo.country_iso_code: {exists: true, in: $home_countries}
+  min_count: 1
+  within: 2h
+  then:
+    event.module: m365
+    event.category: authentication
+    event.action: logon
+    event.outcome: success
+    source.geo.country_iso_code: {exists: true, not_in: $home_countries}
+    source.as.organization.name: {not_contains: [Microsoft]}
+  join_on: user.name
+window: 15m
+title: "{user.name} : connexion Microsoft 365 depuis l'étranger alors que connecté au VPN depuis la France"
+dedup_window: 24h
+mitre: [T1078.004]
+playbook: playbooks/m365-account.md

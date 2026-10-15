@@ -22,10 +22,20 @@ Ce qui est remonté :
 ## Étapes
 1. GravityZone › icône de profil › **Mon compte** › section **Control Center API** : noter l'**Access URL**
    (par exemple `https://cloudgz.gravityzone.bitdefender.com/api`).
-2. **Clés API** › **Ajouter** : description « Mini-SOC (lecture) », cocher **Incidents API** et **Quarantine API**
-   uniquement. Copier la clé (affichée une seule fois).
+2. **Clés API** › **Ajouter** : description « Mini-SOC (lecture) », cocher **Incidents API**, **Quarantine API**
+   et **Network API** uniquement. Copier la clé (affichée une seule fois). Network API sert à la liste des postes
+   protégés : chaque heure, le Mini-SOC signale les machines en service sans antivirus (règle UC-58, voir
+   « Couverture » ci-dessous) ; sans elle, cette vérification est simplement désactivée.
 3. Dans cette fenêtre (onglet Configuration) : adresse d'accès et clé de lecture. **Enregistrer**, puis **Tester** :
    le test lit les incidents et la quarantaine des dernières 24 heures et indique ce qui est accessible.
+
+## Couverture : machines sans antivirus (UC-58)
+Chaque heure, les machines Windows et macOS en service (relevé NinjaOne de moins de 7 jours, agents HarfangLab actifs)
+sont comparées aux postes **gérés** dans GravityZone (getEndpointsList, tous groupes). Une machine absente, ou
+seulement « découverte » sans agent, depuis plus de 24 heures donne une alerte « Pas d'antivirus sur … » (hygiène du
+parc ; haute pour un serveur), close d'elle-même quand l'agent est installé. Une liste lue partiellement ne produit
+ni alerte ni clôture. Le relevé « Aucun antivirus » de NinjaOne n'est plus utilisé pour cela (faux sur Windows
+Server et pour les produits « NONE »). État : page **Veille** › Couverture antivirus et EDR.
 
 > La clé « Incidents API » permet aussi, côté GravityZone, des actions (isolation, liste de blocage) : le Mini-SOC
 > ne les utilise pas avec cette clé, mais elle est sensible. Elle est chiffrée dans le Mini-SOC et n'est jamais

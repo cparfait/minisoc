@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 import redis.asyncio as aioredis
 from sqlalchemy import select
 
-from minisoc import bus
+from minisoc import bus, identity
 from minisoc.accounts import SYNC_SECONDS, SensitiveAccounts, ad_configured, sync_from_ad
 from minisoc.alerts import SYSTEM, Detection, ExceptionCache, upsert_alert
 from minisoc.config import Settings, get_settings
@@ -28,7 +28,7 @@ from minisoc.connectors.m365 import M365Connector
 from minisoc.connectors.ninjaone import NinjaOneConnector
 from minisoc.connectors.varonis import VaronisConnector
 from minisoc.connectors.vectra import VectraConnector
-from minisoc.geoip_update import GeoIPUpdater
+from minisoc.coverage import CoverageJob
 from minisoc.db import init_db, sessionmaker
 from minisoc.decoys import Decoys
 from minisoc.detections import ProfileCache, entity_parts, recalibrate
@@ -36,7 +36,9 @@ from minisoc.ecs import Event
 from minisoc.events_store import EventStore
 from minisoc.export import Exporter, alert_payload
 from minisoc.geoip import GeoIP
+from minisoc.geoip_update import GeoIPUpdater
 from minisoc.housekeeping import purge
+from minisoc.identity import IDENTITIES, host_key, user_key
 from minisoc.integrations import (
     DROPPED_KEY,
     GEOIP_STATUS_KEY,
@@ -62,6 +64,7 @@ from minisoc.settings_store import store as settings_store
 from minisoc.siem_jobs import ArchiveJob, AssetJob, IocHunter, RiskJob
 from minisoc.source_sync import SourceStatusSync
 from minisoc.threat_feeds import KevIndex, refresh_certfr, refresh_kev
+from minisoc.trivy import TrivyLocalJob
 
 log = logging.getLogger("minisoc.worker")
 
@@ -69,6 +72,7 @@ BATCH = 500
 SCHEDULE_SECONDS = 30
 NOTIFY_SECONDS = 10
 QUALIFY_CACHE_SECONDS = 300
+WATERMARK_MARGIN = 60
 
 
 class Worker:
@@ -88,6 +92,7 @@ class Worker:
         self.notify_event = asyncio.Event()
         self.qualifier = AuthQualifier(store)
         self.qualifications: dict[tuple[str, str], tuple[float, Qualification | None]] = {}
+        self.watermarks: dict[str, float] = {}  # règle planifiée -> début de sa dernière évaluation réussie
         # Nom stable : après un redémarrage (nouveau conteneur), le worker retrouve ses messages non acquittés
         self.consumer = os.environ.get("MINISOC_WORKER_NAME", "worker-1")
         self.started = datetime.now(timezone.utc)
@@ -147,7 +152,10 @@ class Worker:
                 await self.redis.hincrby(DROPPED_KEY, module, n)
         for ev in events:
             if ev.user_name:  # compte sensible : administrateur ou compte de service (règles UC-23 à UC-31)
+                ev.user_key = user_key(ev.user_name)  # même compte sous toutes ses formes (minisoc/identity.py)
                 ev.user_roles = self.accounts.roles(ev.user_name)
+            if ev.host_name:
+                ev.host_key = host_key(ev.host_name)
             if ev.kind == "alert":  # détection mentionnant une CVE activement exploitée (catalogue KEV)
                 kev = self.kev.match(ev.rule_name, ev.threat_name, ev.message)
                 if kev:
@@ -243,8 +251,14 @@ class Worker:
 
     async def evaluate(self, rule: Rule) -> None:
         builder = {"threshold": threshold_query, "sequence": sequence_query, "novelty": novelty_query}[rule.type]
-        sql, params = builder(rule)
-        for row in await self.store.query(sql, params):
+        # Filigrane : événements reçus depuis la dernière évaluation réussie de la règle (+ 60 s de marge pour une
+        # insertion concurrente) ; au démarrage, toute la période scrutée
+        started = asyncio.get_running_loop().time()
+        last = self.watermarks.get(rule.id)
+        sql, params = builder(rule, None if last is None else int(started - last) + WATERMARK_MARGIN)
+        rows = await self.store.query(sql, params)
+        self.watermarks[rule.id] = started
+        for row in rows:
             values: dict[str, object] = {fld: row[f"g{i}"] for i, fld in enumerate(rule.group_by)}
             values["value"] = row["value"]
             if self.exceptions.is_excepted(rule.id, values):
@@ -480,6 +494,7 @@ class Worker:
                 cfg = await settings_store.load(session)
             if cfg.get("accounts_ad_sync", True) and ad_configured(cfg):
                 await sync_from_ad(self.redis, cfg)
+                await identity.sync_users(self.redis, cfg)  # formes du nom de chaque compte (UPN, messagerie…)
                 await self.accounts.refresh(cfg)
             await asyncio.sleep(SYNC_SECONDS)
 
@@ -488,6 +503,7 @@ class Worker:
             async with self.sessions() as session:
                 cfg = await settings_store.load(session)
             await self.accounts.refresh(cfg)
+            await IDENTITIES.refresh(self.redis)
             self.exporter.update(cfg)
             self.decoys = Decoys.from_cfg(cfg)
             variables = rule_variables(cfg)
@@ -553,6 +569,7 @@ async def main() -> None:
     varonis = VaronisConnector(sessionmaker(), redis)
     vectra = VectraConnector(sessionmaker(), redis)
     geoip_updater = GeoIPUpdater(sessionmaker(), redis, settings.geoip_dir)
+    trivy_local = TrivyLocalJob(sessionmaker(), redis, settings.trivy_dir)
     gravityzone = GravityZoneConnector(sessionmaker(), redis)
     crowdsec = CrowdSecConnector(sessionmaker(), redis)
     status_sync = SourceStatusSync(sessionmaker(), redis, store)
@@ -561,6 +578,8 @@ async def main() -> None:
     archive_job = ArchiveJob(sessionmaker(), store)
     asset_job = AssetJob(sessionmaker(), redis)
     risk_job = RiskJob(sessionmaker(), store, lambda: worker.rules, worker.raise_alert)
+    coverage_job = CoverageJob(sessionmaker(), redis, store, lambda: worker.rules, worker.exceptions,
+                               worker.notify_event.set)
     await asyncio.gather(
         supervise("pipeline", worker.pipeline),
         supervise("règles planifiées", worker.scheduled_rules),
@@ -582,12 +601,14 @@ async def main() -> None:
         supervise("varonis", varonis.run),
         supervise("vectra", vectra.run),
         supervise("bases GeoIP", geoip_updater.run),
+        supervise("trivy (VM)", trivy_local.run),
         supervise("gravityzone", gravityzone.run),
         supervise("synchro des statuts", status_sync.run),
         supervise("chasse aux IOC", ioc_hunter.run),
         supervise("archives scellées", archive_job.run),
         supervise("inventaire", asset_job.run),
         supervise("risque et chaînes", risk_job.run),
+        supervise("couverture antivirus et EDR", coverage_job.run),
         supervise("export SIEM", worker.exporter.run),
     )
 

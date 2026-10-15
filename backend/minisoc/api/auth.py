@@ -177,7 +177,7 @@ async def _ldap_login(db: AsyncSession, user: User | None, username: str, passwo
         await audit.record(db, actor=username, ip=ip, action="login_ldap_error", obj="auth", detail={"error": str(exc)})
         await db.commit()
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            "Annuaire indisponible : utilisez un compte local de secours ou réessayez") from None
+                            "Service d'authentification indisponible : réessayez plus tard") from None
 
     # Provisionnement à la volée ; le rôle est resynchronisé depuis les groupes AD à chaque connexion
     if user is None:

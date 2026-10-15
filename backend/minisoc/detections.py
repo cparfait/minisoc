@@ -59,6 +59,49 @@ def alert_detections(alert: Alert) -> list[tuple[str, str, str, int]]:
     return out
 
 
+# ---------- Corroboration : une machine signalée par plusieurs outils ----------
+
+# Outils de détection : deux outils indépendants qui signalent la même machine sont une piste bien plus sûre
+DETECTION_TOOLS = {"harfanglab": "HarfangLab", "bitdefender": "Bitdefender", "vectra": "Vectra",
+                   "varonis": "Varonis", "sophos_xgs": "pare-feu Sophos", "crowdsec": "CrowdSec",
+                   "windows": "journaux Windows", "m365": "Microsoft 365", "dns": "DNS"}
+CORROBORATION_POINTS = 10  # par outil supplémentaire
+CORROBORATION_MAX = 20
+
+
+def alert_hosts(alert: Alert) -> set[str]:
+    """Machines citées par l'alerte (entité, entités regroupées, événement déclencheur), en clé unifiée."""
+    from minisoc.identity import host_key
+
+    details = alert.details or {}
+    names = {parts.get("host.name", "") for parts in [entity_parts(alert.entity_key)]}
+    names |= {entity_parts(k).get("host.name", "") for k in (details.get("entities") or {})}
+    names.add(str((details.get("sample") or {}).get("host.name") or ""))
+    return {host_key(n) for n in names if n and n not in ("-", "?")} - {""}
+
+
+def tools_by_host(alerts: list[Alert]) -> dict[str, set[str]]:
+    """Outils de détection ayant signalé chaque machine (alertes de menace seulement)."""
+    out: dict[str, set[str]] = {}
+    for alert in alerts:
+        if ((alert.details or {}).get("category") or "threat") != "threat":
+            continue
+        tools = {m for m in alert.modules or [] if m in DETECTION_TOOLS}
+        if not tools:
+            continue
+        for host in alert_hosts(alert):
+            out.setdefault(host, set()).update(tools)
+    return out
+
+
+def corroboration(tools: set[str]) -> tuple[int, str]:
+    """(points, libellé) quand au moins deux outils distincts ont signalé la machine."""
+    if len(tools) < 2:
+        return 0, ""
+    labels = ", ".join(sorted(DETECTION_TOOLS.get(t, t) for t in tools))
+    return min(CORROBORATION_MAX, CORROBORATION_POINTS * (len(tools) - 1)), labels
+
+
 # ---------- Fiches ----------
 
 
@@ -176,9 +219,11 @@ _SEVERITY_POINTS = {0: 5, 1: 15, 2: 35, 3: 55, 4: 70}
 
 
 def priority(alert: Alert, machines: dict[tuple[str, str], int], hosts: list[str],
-             now: datetime | None = None, extra: list[dict] | None = None) -> tuple[int, list[dict]]:
+             now: datetime | None = None, extra: list[dict] | None = None,
+             tools: dict[str, set[str]] | None = None) -> tuple[int, list[dict]]:
     """Score de 0 à 100 et ses raisons ({label, points}), du plus au moins important. `extra` : raisons venues
-    de l'inventaire (criticité de la machine ou du compte)."""
+    de l'inventaire (criticité de la machine ou du compte) ; `tools` : outils ayant signalé chaque machine sur les
+    alertes ouvertes (tools_by_host)."""
     now = now or datetime.now(timezone.utc)
     details = alert.details or {}
     reasons = [{"label": f"sévérité {SEVERITY_LABEL.get(alert.severity, '?')}",
@@ -208,6 +253,13 @@ def priority(alert: Alert, machines: dict[tuple[str, str], int], hosts: list[str
         reasons.append({"label": "aucune activité depuis plus de 7 jours", "points": -10})
     if len(alert.modules or []) > 1:
         reasons.append({"label": f"confirmée par {len(alert.modules)} outils", "points": 10})
+    if tools and category in (None, "threat"):
+        from minisoc.identity import host_key
+
+        best = max(((h, tools.get(host_key(h), set())) for h in hosts), key=lambda ht: len(ht[1]), default=None)
+        points, labels = corroboration(best[1]) if best else (0, "")
+        if points:
+            reasons.append({"label": f"{best[0]} signalée par {len(best[1])} outils ({labels})", "points": points})
     score = max(0, min(100, sum(r["points"] for r in reasons)))
     reasons.sort(key=lambda r: -abs(r["points"]))
     return score, reasons

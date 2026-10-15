@@ -10,6 +10,10 @@ sequence:
     event.module: sophos_xgs
     event.category: authentication
     event.outcome: failure
+    network.service: [ssl_vpn, ipsec, l2tp, user_portal, admin_console]
+    # Portail VPN des SFOS récents : adresse journalisée 127.0.0.1 (relais du pare-feu), sans valeur pour une
+    # jointure par adresse : comptée seulement par compte (UC-03b) et par UC-51
+    source.ip: {not_cidr: [127.0.0.0/8]}
   min_count: 5
   within: 24h
   then:
@@ -17,6 +21,7 @@ sequence:
     event.category: authentication
     event.outcome: success
     network.service: [ssl_vpn, ipsec, l2tp, user_portal, admin_console]
+    source.ip: {not_cidr: [127.0.0.0/8]}
   join_on: source.ip
 window: 15m
 title: "Connexion réussie depuis {source.ip} après des échecs répétés"

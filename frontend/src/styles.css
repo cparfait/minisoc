@@ -271,6 +271,8 @@ a.kpi:hover { color: var(--text); transform: translateY(-2px); border-color: col
 .source-ok i { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
 .source-silent i { background: var(--critical); box-shadow: 0 0 0 3px color-mix(in srgb, var(--critical) 25%, transparent); }
 .source-silent { border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+.source-silent small { color: var(--critical); font-weight: 600; }
+.source-unknown i { background: var(--muted); }
 
 /* ---------- Tableaux ---------- */
 table { width: 100%; border-collapse: separate; border-spacing: 0; }
@@ -365,7 +367,7 @@ tr.selected td { background: color-mix(in srgb, var(--accent) 9%, transparent); 
 .exception-inline .row { flex-wrap: wrap; }
 
 /* ---------- Connexion ---------- */
-.login { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; }
+.login { min-height: 100vh; display: grid; grid-template-columns: 1fr; }
 .login-hero { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 48px 56px; border-right: 1px solid var(--border);
   background:
     radial-gradient(700px 420px at 15% 20%, rgba(99, 102, 241, .32), transparent 60%),
@@ -388,7 +390,6 @@ tr.selected td { background: color-mix(in srgb, var(--accent) 9%, transparent); 
 .login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; }
 .login-card h2 { font-size: 22px; text-transform: none; letter-spacing: -0.02em; color: var(--text); margin: 0; font-weight: 650; }
 .login-card .login-sub { margin: -10px 0 4px; color: var(--muted); }
-.login-card .brand { display: none; }
 .login-card button.primary { padding: 11px 14px; font-size: 14.5px; }
 .login-help { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .login-help strong { color: var(--text); }

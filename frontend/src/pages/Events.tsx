@@ -9,7 +9,19 @@ import { moduleLabel } from "../labels";
 import type { EventRow } from "../types";
 
 const PERIODS: Record<string, number> = { "1h": 1, "24h": 24, "7j": 24 * 7, "30j": 24 * 30, "90j": 24 * 90 };
-const FIELDS = ["q", "ip", "user", "host", "module", "category", "outcome", "period", "from", "to"] as const;
+const FIELDS = ["q", "ip", "user", "host", "module", "category", "outcome", "reason", "period", "from", "to"] as const;
+/** Motifs d'échec d'authentification normalisés (VPN, Windows, Microsoft 365…). */
+const REASONS: Record<string, string> = {
+  invalid_credentials: "Mauvais mot de passe",
+  unknown_user: "Compte inconnu",
+  account_locked: "Compte verrouillé",
+  account_disabled: "Compte désactivé",
+  password_expired: "Mot de passe expiré",
+  mfa_failed: "MFA refusée",
+  blocked_by_policy: "Bloquée (accès conditionnel)",
+  outside_hours: "Hors plage horaire",
+  other: "Autre motif",
+};
 const CATEGORIES: Record<string, string> = {
   authentication: "Authentifications",
   intrusion_detection: "Intrusions",
@@ -39,7 +51,7 @@ export default function Events() {
       const since = current.from || new Date(Date.now() - hours * 3600000).toISOString();
       const until = current.to || undefined;
       return api<{ items: EventRow[] }>(
-        `/events${query({ q: current.q, ip: current.ip, user: current.user, host: current.host, module: current.module, category: current.category, outcome: current.outcome, since, until, limit: 200 })}`,
+        `/events${query({ q: current.q, ip: current.ip, user: current.user, host: current.host, module: current.module, category: current.category, outcome: current.outcome, reason: current.reason, since, until, limit: 200 })}`,
       );
     },
     [key],
@@ -95,6 +107,14 @@ export default function Events() {
           <option value="">Tous résultats</option>
           <option value="failure">Échecs</option>
           <option value="success">Succès</option>
+        </select>
+        <select value={form.reason} onChange={set("reason")} aria-label="Motif d'échec">
+          <option value="">Tous motifs</option>
+          {Object.entries(REASONS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </select>
         <select value={form.period} onChange={set("period")} aria-label="Période">
           {Object.keys(PERIODS).map((p) => (

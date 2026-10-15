@@ -14,7 +14,7 @@ from minisoc import audit
 from minisoc.api.deps import ANALYST, ANY_USER, client_ip, get_db
 from minisoc.assets import INDEX as ASSETS
 from minisoc.assets import AssetIndex, criticality_reasons
-from minisoc.detections import CATEGORY_LABEL, priority, spread
+from minisoc.detections import CATEGORY_LABEL, priority, spread, tools_by_host
 from minisoc.ecs import SEVERITY_BY_NAME, severity_name
 from minisoc.followup import FollowupError, apply_update, deadlines, notify_assignee, overdue_filter
 from minisoc.frameworks import describe
@@ -79,7 +79,8 @@ def impacted_hosts(alert: Alert) -> list[dict]:
 
 
 def serialize(
-    alert: Alert, machines: dict | None = None, index: AssetIndex | None = None, cfg: dict | None = None
+    alert: Alert, machines: dict | None = None, index: AssetIndex | None = None, cfg: dict | None = None,
+    tools: dict | None = None,
 ) -> dict:
     """`machines` : nombre de machines par détection sur les alertes ouvertes (rareté, pour la priorité) ;
     `index` : inventaire (criticité, propriétaire, service des machines et comptes)."""
@@ -95,7 +96,7 @@ def serialize(
                 )
         user = str(((alert.details or {}).get("sample") or {}).get("user.name") or "")
         extra = criticality_reasons(index, [h["name"] for h in hosts], user)
-    score, reasons = priority(alert, machines or {}, [h["name"] for h in hosts], extra=extra)
+    score, reasons = priority(alert, machines or {}, [h["name"] for h in hosts], extra=extra, tools=tools)
     return {
         "hosts": hosts,
         "priority": score,
@@ -128,18 +129,29 @@ def serialize(
     }
 
 
-async def machines_by_detection(db: AsyncSession) -> dict:
-    """Nombre de machines par détection sur les alertes ouvertes (colonnes utiles seulement)."""
+async def _open_light(db: AsyncSession) -> list[Alert]:
+    """Alertes ouvertes, colonnes utiles seulement (rareté des détections, outils ayant signalé chaque machine)."""
     rows = await db.execute(
-        select(Alert.entity_key, Alert.modules, Alert.count, Alert.details["entities"], Alert.details["storm"]).where(
-            Alert.status.in_(OPEN_STATUSES)
-        )
+        select(Alert.entity_key, Alert.modules, Alert.count, Alert.details["entities"], Alert.details["storm"],
+               Alert.details["category"], Alert.details["sample"]).where(Alert.status.in_(OPEN_STATUSES))
     )
-    light = [
-        Alert(entity_key=key, modules=modules, count=count, details={"entities": entities or {}, "storm": bool(storm)})
-        for key, modules, count, entities, storm in rows.all()
+    return [
+        Alert(entity_key=key, modules=modules, count=count,
+              details={"entities": entities or {}, "storm": bool(storm), "category": category,
+                       "sample": {"host.name": (sample or {}).get("host.name", "")}})
+        for key, modules, count, entities, storm, category, sample in rows.all()
     ]
-    return spread(light)
+
+
+async def machines_by_detection(db: AsyncSession) -> dict:
+    """Nombre de machines par détection sur les alertes ouvertes."""
+    return spread(await _open_light(db))
+
+
+async def open_context(db: AsyncSession) -> tuple[dict, dict]:
+    """(machines par détection, outils de détection ayant signalé chaque machine) sur les alertes ouvertes."""
+    light = await _open_light(db)
+    return spread(light), tools_by_host(light)
 
 
 SORTS = {
@@ -236,15 +248,16 @@ async def list_alerts(
         statuses = [s for s in status.split(",") if s in ALERT_STATUSES]
         stmt = stmt.where(Alert.status.in_(statuses))
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    machines = await machines_by_detection(db)
+    machines, tools = await open_context(db)
     index = await ASSETS.ensure(db)
     if sort == "priority":  # score calculé : tri en mémoire (quelques milliers d'alertes au plus)
-        items = [serialize(a, machines, index, cfg) for a in (await db.scalars(stmt)).all()]
+        items = [serialize(a, machines, index, cfg, tools) for a in (await db.scalars(stmt)).all()]
         items.sort(key=lambda a: a["last_seen"], reverse=True)
         items.sort(key=lambda a: a["priority"], reverse=True)  # tri stable : à score égal, la plus récente
         return {"total": total, "by_status": by_status, "items": items[offset : offset + limit]}
     rows = await db.scalars(stmt.order_by(*SORTS.get(sort, SORTS["recent"])).limit(limit).offset(offset))
-    return {"total": total, "by_status": by_status, "items": [serialize(a, machines, index, cfg) for a in rows.all()]}
+    items = [serialize(a, machines, index, cfg, tools) for a in rows.all()]
+    return {"total": total, "by_status": by_status, "items": items}
 
 
 @router.get("/facets")
@@ -288,8 +301,9 @@ async def get_alert(alert_id: int, request: Request, db: AsyncSession = Depends(
         events = await state.store.by_ids(alert.event_ids)
     except Exception:  # noqa: BLE001 - l'alerte reste consultable si ClickHouse est indisponible
         events = []
+    machines, tools = await open_context(db)
     return {
-        **serialize(alert, await machines_by_detection(db), await ASSETS.ensure(db), await settings_store.load(db)),
+        **serialize(alert, machines, await ASSETS.ensure(db), await settings_store.load(db), tools),
         "category_label": CATEGORY_LABEL.get((alert.details or {}).get("category") or "threat"),
         "details": alert.details,
         "rule": {

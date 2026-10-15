@@ -54,7 +54,9 @@ _VPN_WHERE = (
 
 # Connexion réussie « à signaler » : depuis une adresse publique hors des pays habituels (Paramètres › Détection)
 _ABROAD = (
-    "outcome = 'success' AND source_ip != '' AND source_country NOT IN {home:Array(String)} "
+    # Pays connu seulement : sans base GeoIP (ou adresse absente de la base), le pays est vide et rien ne permet de
+    # dire que la connexion vient de l'étranger
+    "outcome = 'success' AND source_ip != '' AND source_country != '' AND source_country NOT IN {home:Array(String)} "
     "AND NOT (isIPAddressInRange(source_ip, '10.0.0.0/8') OR isIPAddressInRange(source_ip, '172.16.0.0/12') "
     "OR isIPAddressInRange(source_ip, '192.168.0.0/16') OR isIPAddressInRange(source_ip, '127.0.0.0/8'))"
 )
@@ -102,14 +104,77 @@ async def vpn_activity(store: EventStore, recent: int = 12, home_countries: list
     }
 
 
-async def sources_status(redis: aioredis.Redis, absence_rules: list[Rule]) -> list[dict]:
+_M365_WHERE = "module = 'm365' AND ts >= now64(3) - INTERVAL 24 HOUR"
+_M365_AUTH = f"{_M365_WHERE} AND category = 'authentication'"
+# Changements sensibles du tenant (rôles, MFA, consentements, mots de passe, transferts de messagerie)
+M365_CHANGES = ("role_member_added", "mfa_disabled", "app_consent", "password_reset", "mail_forwarding_rule")
+
+
+async def m365_activity(store: EventStore, recent: int = 10, home_countries: list[str] | None = None) -> dict:
+    """Comptes Microsoft 365 / Entra ID sur 24 h (journal d'audit unifié) : connexions, échecs par motif, comptes
+    visés, connexions réussies depuis l'étranger et changements sensibles, pour le tableau de bord."""
+    home = [c.upper() for c in (home_countries or ["FR"])]
+    params = {"home": home, "recent": recent, "changes": list(M365_CHANGES)}
+    summary = (await store.query(
+        "SELECT countIf(outcome = 'failure') AS failures, countIf(outcome = 'success') AS successes, "
+        "uniqExactIf(user_name, outcome = 'success') AS users_ok, "
+        "uniqExactIf(user_name, outcome = 'failure') AS users_failed, "
+        "uniqExactIf(source_ip, outcome = 'failure') AS ips_failed, "
+        "countIf(reason = 'mfa_failed') AS mfa_failed, "
+        f"countIf({_ABROAD}) AS successes_abroad, "
+        f"uniqExactIf(user_name, {_ABROAD}) AS users_abroad "
+        f"FROM events WHERE {_M365_AUTH}",
+        params,
+    ) or [{}])[0]
+    # Par motif : nombre d'échecs et comptes distincts concernés (un échec sans nom de compte n'en ajoute pas)
+    reasons = await store.query(
+        "SELECT reason, count() AS n, uniqExactIf(user_name, user_name != '') AS users FROM events "
+        f"WHERE {_M365_AUTH} AND outcome = 'failure' GROUP BY reason ORDER BY n DESC LIMIT 6",
+        params,
+    )
+    targeted = await store.query(
+        "SELECT user_name AS user, count() AS failures, uniqExact(source_country) AS countries FROM events "
+        f"WHERE {_M365_AUTH} AND outcome = 'failure' AND user_name != '' "
+        "GROUP BY user ORDER BY failures DESC LIMIT 6",
+        params,
+    )
+    last = await store.query(
+        "SELECT ts, user_name AS user, source_ip AS ip, source_country AS country, outcome, reason FROM events "
+        f"WHERE {_M365_AUTH} AND (outcome = 'failure' OR ({_ABROAD})) ORDER BY ts DESC LIMIT {{recent:UInt32}}",
+        params,
+    )
+    changes = await store.query(
+        "SELECT ts, action, user_name AS user, rule_name AS what, threat_name AS detail FROM events "
+        f"WHERE {_M365_WHERE} AND action IN {{changes:Array(String)}} ORDER BY ts DESC LIMIT 6",
+        params,
+    )
+    return {
+        "summary": {k: int(v or 0) for k, v in summary.items()},
+        "reasons": reasons,
+        "targeted": targeted,
+        "recent": [{**r, "ts": utc_iso(r["ts"])} for r in last],
+        "changes": [{**r, "ts": utc_iso(r["ts"])} for r in changes],
+        "home_countries": home,
+    }
+
+
+async def sources_status(redis: aioredis.Redis, absence_rules: list[Rule], cfg: dict | None = None) -> list[dict]:
+    """État de chaque source. Délai de silence : celui de l'intégration (Intégrations, ex. 30 min pour le pare-feu),
+    sinon celui de la règle UC-16 — le même calcul que la fiche de l'intégration et que l'alerte « source
+    silencieuse ». Les intégrations désactivées n'apparaissent pas."""
+    from minisoc.integrations import configured_missing, disabled_modules, monitored_sources
+
     last_seen = await bus.sources_last_seen(redis)
     expected: dict[str, timedelta] = {}
+    if cfg is not None:  # intégration pas encore configurée : « à configurer » sur sa fiche, pas silencieuse
+        missing = configured_missing(cfg)
+        expected = {m: d for m, d in monitored_sources(cfg).items() if m not in missing}
     for rule in absence_rules:
         expected.update(rule.sources)
+    disabled = disabled_modules(cfg) if cfg is not None else set()
     now = datetime.now(timezone.utc)
     items = []
-    for module in sorted(set(last_seen) | set(expected)):
+    for module in sorted((set(last_seen) | set(expected)) - set(disabled)):
         seen = last_seen.get(module)
         delay = expected.get(module)
         if seen is None:

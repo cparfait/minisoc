@@ -1,11 +1,12 @@
-import { ArrowLeft, BellRing, Fingerprint, Lock, Radar, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Fingerprint, Lock } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { ApiError, api } from "../api";
 import type { User } from "../types";
 
 type Step = { kind: "password" } | { kind: "totp" } | { kind: "enroll"; qr: string; secret: string };
 
-/** Boucle d'authentification : mot de passe (local ou AD) → code TOTP (ou enrôlement du MFA) → session. */
+/** Boucle d'authentification : mot de passe (local ou AD) → code TOTP (ou enrôlement du MFA) → session.
+ * Page volontairement neutre : rien sur les outils surveillés, les règles ni l'annuaire (repérage). */
 export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [step, setStep] = useState<Step>({ kind: "password" });
   const [username, setUsername] = useState("");
@@ -56,45 +57,6 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
 
   return (
     <div className="login">
-      <aside className="login-hero">
-        <div className="brand">
-          <img src="/favicon.svg" alt="" width={36} height={36} />
-          <span>Mini-SOC</span>
-        </div>
-        <div>
-          <h1>
-            Toutes vos alertes de sécurité, <span>au même endroit.</span>
-          </h1>
-          <p>
-            Pare-feu, EDR, antivirus, Active Directory et Microsoft 365 : le Mini-SOC corrèle, qualifie et vous prévient
-            de ce qui compte vraiment.
-          </p>
-          <ul className="login-features">
-            <li>
-              <Radar size={18} />
-              <span>
-                <strong>Détection corrélée</strong>
-                41 règles rattachées à MITRE ATT&amp;CK, qualification automatique des attaques.
-              </span>
-            </li>
-            <li>
-              <BellRing size={18} />
-              <span>
-                <strong>Alerte au bon moment</strong>
-                E-mail, Teams ou mobile selon la gravité, escalade si personne ne réagit.
-              </span>
-            </li>
-            <li>
-              <ShieldCheck size={18} />
-              <span>
-                <strong>Réponse maîtrisée</strong>
-                Blocage d'IP et isolation de poste, avec confirmation et traçabilité complète.
-              </span>
-            </li>
-          </ul>
-        </div>
-        <footer>Accès réservé à la DSI · connexions journalisées</footer>
-      </aside>
       <div className="login-panel">
       <div className="login-card">
         <div className="brand">
@@ -102,12 +64,11 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
           <span>Mini-SOC</span>
         </div>
         <h2>{step.kind === "password" ? "Connexion" : step.kind === "enroll" ? "Double authentification" : "Vérification"}</h2>
-        {step.kind === "password" && <p className="login-sub">Avec votre compte Windows ou votre compte local.</p>}
 
         {step.kind === "password" && (
           <form onSubmit={submitPassword} className="stack">
             <label>
-              Identifiant (compte Windows ou compte local)
+              Identifiant
               <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus />
             </label>
             <label>
@@ -162,7 +123,7 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
         )}
         <p className="login-secure">
           {step.kind === "password" ? <Lock size={13} /> : <Fingerprint size={13} />}
-          Connexion chiffrée · double authentification obligatoire
+          Accès réservé · connexions journalisées
         </p>
       </div>
       </div>

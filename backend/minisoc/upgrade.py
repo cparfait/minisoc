@@ -43,3 +43,60 @@ async def keep_working_integrations(session: AsyncSession, redis: aioredis.Redis
         settings_store.invalidate()
         log.info("mise à jour : intégrations en service conservées actives : %s", ", ".join(keep))
     return keep
+
+
+async def categorize_rule_alerts(session: AsyncSession, rules) -> int:
+    """Alertes ouvertes de règles d'hygiène ou d'information créées avant que la règle ne précise sa catégorie :
+    classées comme leur règle (filtre « Hygiène du parc », poids dans le risque)."""
+    from minisoc.models import OPEN_STATUSES, Alert
+
+    categories = {r.id: r.category for r in rules.rules if r.category != "threat"}
+    if not categories:
+        return 0
+    rows = (await session.scalars(select(Alert).where(Alert.rule_id.in_(categories),
+                                                      Alert.status.in_(OPEN_STATUSES)))).all()
+    changed = 0
+    for alert in rows:
+        if not (alert.details or {}).get("category"):
+            alert.details = {**(alert.details or {}), "category": categories[alert.rule_id]}
+            changed += 1
+    if changed:
+        await session.commit()
+        log.info("mise à jour : %d alerte(s) ouverte(s) classée(s) selon leur règle (hygiène, information)", changed)
+    return changed
+
+
+async def retire_unreliable_antivirus(session: AsyncSession) -> int:
+    """Alertes « Aucun antivirus actif » de NinjaOne fondées sur un produit « NONE » ou sur un serveur (pas de Centre
+    de sécurité Windows) : état inconnu, pas une absence. Clôturées une fois ; l'absence d'antivirus ou d'EDR est
+    désormais établie par GravityZone et HarfangLab (règles UC-58 et UC-59)."""
+    from minisoc.alerts import SYSTEM
+    from minisoc.models import OPEN_STATUSES, Alert, AlertHistory
+
+    rows = (await session.scalars(select(Alert).where(
+        Alert.rule_id == "UC-11", Alert.status.in_(OPEN_STATUSES), Alert.entity_key.contains("antivirus_disabled"),
+    ))).all()
+    closed = 0
+    for alert in rows:
+        sample = (alert.details or {}).get("sample") or {}
+        text = f"{alert.title} {sample.get('message') or ''}"
+        if "(NONE)" not in text.upper() and "produit inconnu" not in text and not _server_alert(alert):
+            continue
+        alert.status, alert.notify_pending = "resolved", False
+        session.add(AlertHistory(alert_id=alert.id, actor=SYSTEM, action="status", detail="resolved"))
+        session.add(AlertHistory(alert_id=alert.id, actor=SYSTEM, action="comment", detail=(
+            "NinjaOne ne sait pas lire l'antivirus de cette machine (produit « NONE » ou serveur sans Centre de "
+            "sécurité Windows) : état inconnu, pas une absence. L'absence d'antivirus et d'EDR est désormais "
+            "vérifiée dans GravityZone et HarfangLab (UC-58, UC-59). Clôture automatique.")))
+        closed += 1
+    if closed:
+        await session.commit()
+        log.info("mise à jour : %d alerte(s) « Aucun antivirus actif » de NinjaOne non fiables clôturées", closed)
+    return closed
+
+
+def _server_alert(alert) -> bool:
+    from minisoc.assets import SERVER_NAME
+
+    host = str(((alert.details or {}).get("sample") or {}).get("host.name") or "")
+    return bool(SERVER_NAME.match(host))

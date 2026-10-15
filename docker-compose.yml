@@ -1,5 +1,10 @@
 name: minisoc
 
+# Images tierces : image officielle + correctifs Alpine publiés depuis (deploy/images/alpine-patch.Dockerfile)
+x-patched: &patched
+  context: ./deploy/images
+  dockerfile: alpine-patch.Dockerfile
+
 x-backend: &backend
   build:
     context: ./backend
@@ -20,13 +25,18 @@ x-backend: &backend
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # Version majeure = nom du volume (pgdata18) : une montée de version majeure crée un nouveau volume et
+    # minisoc-update y migre les données (export de l'ancienne version, import dans la nouvelle) ; l'ancien volume
+    # reste intact pour un retour arrière
+    # Le numéro de version majeure du nom de l'image sert aussi à minisoc-update (migration ci-dessus)
+    build: { <<: *patched, args: { BASE: "postgres:18-alpine" } }
+    image: minisoc-postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_DB: minisoc
       POSTGRES_USER: minisoc
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes: [pgdata18:/var/lib/postgresql]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U minisoc -d minisoc"]
       interval: 5s
@@ -34,7 +44,8 @@ services:
     networks: [data]
 
   redis:
-    image: redis:7-alpine
+    build: { <<: *patched, args: { BASE: "redis:8-alpine" } }
+    image: minisoc-redis:8
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "300", "1"]
     volumes: [redisdata:/data]
@@ -45,7 +56,10 @@ services:
     networks: [data]
 
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    # Variante Alpine : même serveur et même compte (uid 101) que l'image Ubuntu, sans ses dizaines de paquets
+    # vulnérables sans correctif (busybox, glibc, pcre2…)
+    build: { <<: *patched, args: { BASE: "clickhouse/clickhouse-server:26.9-alpine" } }
+    image: minisoc-clickhouse:26.9
     restart: unless-stopped
     environment:
       CLICKHOUSE_DB: minisoc
@@ -76,15 +90,17 @@ services:
       - geoip:/app/data/geoip
       # La liste remplace celle du modèle commun : le volume des archives est donc repris ici
       - archives:/var/lib/minisoc/archives
+      # Échange avec le service minisoc-trivy de la VM (rapports, état, demande d'analyse) : dossier de l'hôte
+      - ${TRIVY_DIR:-./data/trivy}:/var/lib/minisoc/trivy
 
   # Réception syslog des équipements (Sophos, Vectra, Varonis…) avec tampon disque, relayée à l'API
   vector:
-    image: timberio/vector:0.48.0-alpine
+    build: &vector-build { <<: *patched, args: { BASE: "timberio/vector:0.59.0-alpine" } }
+    image: minisoc-vector:0.59.0
     restart: unless-stopped
     # Recharge la configuration quand vector.yaml change (sinon : docker compose up -d --force-recreate vector)
     command: ["--config", "/etc/vector/vector.yaml", "--watch-config"]
-    environment:
-      MINISOC_INGEST_TOKEN: ${MINISOC_INGEST_TOKEN:?définir MINISOC_INGEST_TOKEN}
+    secrets: [minisoc_ingest_token]  # jeton d'envoi à l'API, lu par Vector dans /run/secrets
     volumes:
       - ./deploy/vector/vector.yaml:/etc/vector/vector.yaml:ro
       - vectordata:/var/lib/vector
@@ -96,12 +112,12 @@ services:
 
   # Syslog chiffré (TLS, TCP 6514) : activé avec COMPOSE_PROFILES=…,syslog-tls après ./scripts/syslog_cert.sh
   vector-tls:
-    image: timberio/vector:0.48.0-alpine
+    build: *vector-build
+    image: minisoc-vector:0.59.0
     profiles: ["syslog-tls"]
     restart: unless-stopped
     command: ["--config", "/etc/vector/vector-tls.yaml", "--watch-config"]
-    environment:
-      MINISOC_INGEST_TOKEN: ${MINISOC_INGEST_TOKEN:?définir MINISOC_INGEST_TOKEN}
+    secrets: [minisoc_ingest_token]  # jeton d'envoi à l'API, lu par Vector dans /run/secrets
     volumes:
       - ./deploy/vector/vector-tls.yaml:/etc/vector/vector-tls.yaml:ro
       - ./data/syslog-tls:/etc/vector/tls:ro
@@ -110,6 +126,13 @@ services:
       - "${SYSLOG_BIND:-0.0.0.0}:6514:6514/tcp"
     depends_on: [api]
     networks: [backend]
+
+  # Trivy : jamais lancé par Compose, mais par le service minisoc-trivy de la VM (deploy/trivy), chaque semaine ou à
+  # la demande ; image corrigée et reconstruite à chaque mise à jour comme les autres (profil « outils »)
+  trivy:
+    build: { <<: *patched, args: { BASE: "aquasec/trivy:0.76.0" } }
+    image: minisoc-trivy:0.76.0
+    profiles: ["outils"]
 
   # Interface web + reverse proxy HTTPS (seul point d'entrée HTTP)
   web:
@@ -134,7 +157,7 @@ services:
     networks: [backend]
 
 volumes:
-  pgdata:
+  pgdata18:
   redisdata:
   chdata:
   vectordata:
@@ -142,6 +165,12 @@ volumes:
   caddydata:
   archives:
   geoip:
+
+# Jeton d'ingestion pour Vector, tiré de .env (MINISOC_INGEST_TOKEN) : fichier en lecture seule dans le conteneur.
+# Depuis Vector 0.59, « ${MINISOC_INGEST_TOKEN} » n'est plus remplacé dans sa configuration.
+secrets:
+  minisoc_ingest_token:
+    environment: MINISOC_INGEST_TOKEN
 
 networks:
   backend:

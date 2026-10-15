@@ -21,6 +21,7 @@ from fnmatch import fnmatchcase
 
 import redis.asyncio as aioredis
 
+from minisoc.identity import IDENTITIES, normalize  # noqa: F401 - normalize : importé d'ici par d'autres modules
 from minisoc.ldap_auth import LdapConfigError, sensitive_accounts
 
 log = logging.getLogger(__name__)
@@ -29,16 +30,6 @@ KEYS = {"admin": "minisoc:accounts:admin", "service": "minisoc:accounts:service"
 SYNC_KEY = "minisoc:accounts:sync"  # dernier passage : {"at", "admin", "service", "error"}
 SYNC_SECONDS = 3600
 ROLES = ("admin", "service")
-
-
-def normalize(name: str) -> str:
-    """« DOMAINE\\J.Dupont » ou « j.dupont@domaine.local » → « j.dupont » (comparaison sans casse)."""
-    name = (name or "").strip().lower()
-    if "\\" in name:
-        name = name.rsplit("\\", 1)[1]
-    if "@" in name:
-        name = name.split("@", 1)[0]
-    return name
 
 
 def ad_configured(cfg: dict) -> bool:
@@ -62,9 +53,11 @@ class SensitiveAccounts:
         name = normalize(user_name)
         if not name:
             return ""
+        # Même compte sous une autre forme (identifiant Microsoft 365, adresse de messagerie, nom affiché)
+        canonical = IDENTITIES.user(user_name)
         found = []
         for role in ROLES:
-            if name in self.known[role]:
+            if name in self.known[role] or canonical in self.known[role]:
                 found.append(role)
             # Les comptes machine (« PC-01$ ») ne sont pas concernés par les motifs (« srv-* » viserait les serveurs)
             elif not name.endswith("$") and any(fnmatchcase(name, p) for p in self.patterns[role]):

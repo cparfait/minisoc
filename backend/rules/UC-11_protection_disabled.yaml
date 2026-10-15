@@ -2,6 +2,7 @@ id: UC-11
 name: Protection antivirus désactivée ou obsolète
 type: match
 severity: from_event
+category: hygiene
 description: >
   Un poste ou un serveur n'a plus d'antivirus actif, ou ses définitions ne sont plus à jour (relevé NinjaOne). Une
   protection coupée est souvent la première action d'un attaquant avant de déposer un rançongiciel ; plus souvent,

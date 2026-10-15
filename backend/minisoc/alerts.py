@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from minisoc.identity import same
 from minisoc.models import OPEN_STATUSES, Alert, AlertHistory, RuleException
 from minisoc.rules.model import Rule
 
@@ -52,9 +53,17 @@ async def upsert_alert(session: AsyncSession, det: Detection, allow_storm: bool 
     200 IP), les nouvelles entités sont regroupées dans une seule alerte de regroupement.
     """
     rule = det.rule
+    if rule.category != "threat" and "category" not in det.details:
+        det.details["category"] = rule.category  # hygiène du parc, information : pèsent peu dans le risque
     existing = await _open_alert(session, rule.id, det.entity_key)
     if existing and det.last_seen - existing.last_seen <= rule.dedup_window:
         return existing, _update(session, existing, det)
+    if existing is None and not det.accumulate:
+        # Fenêtre glissante (seuil, séquence, nouveauté, risque) réévaluée en continu : une alerte déjà clôturée
+        # n'est pas recréée pour les mêmes événements
+        closed = await _last_closed(session, rule.id, det.entity_key)
+        if closed and _already_handled(closed, det):
+            return closed, "suppressed"
     # Import d'historique (relecture des alertes passées d'un outil) : une alerte par entité, sans regroupement
     historical = datetime.now(timezone.utc) - det.last_seen > HISTORICAL_AFTER
     # Les détections jugées bénignes (sévérité faible) gardent leur propre alerte, hors regroupement
@@ -72,6 +81,24 @@ async def _open_alert(session: AsyncSession, rule_id: str, entity_key: str) -> A
         .limit(1)
         .with_for_update()
     )
+
+
+async def _last_closed(session: AsyncSession, rule_id: str, entity_key: str) -> Alert | None:
+    return await session.scalar(
+        select(Alert)
+        .where(Alert.rule_id == rule_id, Alert.entity_key == entity_key, Alert.status.notin_(OPEN_STATUSES))
+        .order_by(Alert.id.desc())
+        .limit(1)
+    )
+
+
+def _already_handled(closed: Alert, det: Detection) -> bool:
+    """Détection déjà traitée par l'alerte clôturée : rien de plus récent que ce qu'elle couvrait, ou même activité
+    (fenêtre qui chevauche) jugée faux positif."""
+    last = closed.last_seen if closed.last_seen.tzinfo else closed.last_seen.replace(tzinfo=timezone.utc)
+    if det.last_seen <= last:
+        return True
+    return closed.status == "false_positive" and det.first_seen <= last
 
 
 def _update(session: AsyncSession, existing: Alert, det: Detection) -> str:
@@ -179,6 +206,7 @@ class ExceptionCache:
         for exc in self.items:
             if exc.expires_at <= now or exc.rule_id not in ("*", rule_id):
                 continue
-            if str(values.get(exc.field, "")) == exc.value:
+            # Comptes et machines : aux alias près (« MAIRIE\jdupont » vaut « jdupont@chatillon92.fr »)
+            if same(exc.field, values.get(exc.field, ""), exc.value):
                 return True
         return False
