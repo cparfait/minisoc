@@ -205,7 +205,7 @@ PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 AuthenticationMethods publickey
-AllowUsers adminsoc
+AllowUsers adminsoc@192.168.10.21 adminsoc@192.168.10.22
 X11Forwarding no
 AllowTcpForwarding no
 AllowAgentForwarding no
@@ -223,6 +223,11 @@ sudo sshd -t && sudo systemctl reload ssh
 ```
 
 Garder la session ouverte et tester une seconde connexion avant de fermer la première.
+
+`AllowUsers` reprend les postes DSI (`ADMINS` du pare-feu, § 6.1) : sur la VM, `minisoc-sshd-config` l'écrit à
+chaque « Appliquer » de `sudo minisoc-setup`. Il ne vise que SSH : la **console de la VM** (hyperviseur) reste
+ouverte à `adminsoc` avec son mot de passe, même si tous les postes DSI sont hors service. Depuis la console :
+`sudo minisoc-setup` › Entrants › Administration, ajouter le poste de remplacement, puis Appliquer.
 
 ### 4.4 Paramètres du noyau
 
@@ -411,7 +416,7 @@ Les deux sont générés par un seul script, à partir d'un seul fichier d'adres
 
 ```sh
 # Pare-feu du Mini-SOC : adresses autorisées.
-# Après modification : sudo systemctl restart minisoc-firewall && sudo minisoc-setup --acces-web
+# Après modification : sudo minisoc-setup --relire (SSH, pare-feu et interface web réappliqués)
 LAN_IF="ens192"                         # interface réseau de la VM (VMXNET3 sous vSphere ; commande : ip -br link)
 
 # --- Entrant ---
@@ -512,7 +517,7 @@ pourrait écrire.
 Caddy reçoit les listes par `/opt/minisoc/.env` : `MINISOC_TRIVY_IPS` (= `TRIVY`) et `MINISOC_WEB_IPS`
 (= `ADMINS` et `WALL`). « Appliquer » dans `sudo minisoc-setup`, le retour arrière automatique et `minisoc-update`
 les recopient depuis `firewall.conf` et recréent le conteneur `web` si elles ont changé. Après une modification à
-la main de `firewall.conf` : `sudo minisoc-setup --acces-web`.
+la main de `firewall.conf` : `sudo minisoc-setup --relire`.
 
 Le jeton de chaque serveur garde ses propres contrôles (Intégrations › Trivy : révocation, « Adresses
 autorisées »).
@@ -699,7 +704,9 @@ sudo chmod 600 /var/lib/minisoc-backup/.ssh/authorized_keys
 ```
 
 Dans `/etc/ssh/sshd_config.d/10-minisoc.conf`, compléter :
-`AllowUsers adminsoc minisoc-backup@192.168.10.60`, puis `sudo systemctl reload ssh`.
+`AllowUsers adminsoc@192.168.10.21 adminsoc@192.168.10.22 minisoc-backup@192.168.10.60`, puis
+`sudo systemctl reload ssh` (sur la VM, `sudo minisoc-setup` › Sauvegarde le fait). Le serveur de sauvegarde ne
+peut ainsi ouvrir que le compte `minisoc-backup`, même si le pare-feu lui ouvre le port SSH.
 
 Sur le serveur de sauvegarde (`192.168.10.60`), chaque nuit à 3 h, récupérer les archives de la VM
 (`192.168.10.50`) :

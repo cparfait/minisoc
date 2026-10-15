@@ -3,8 +3,8 @@
 # Les réponses précédentes sont proposées par défaut ; rien n'est appliqué avant « Appliquer ».
 #   sudo minisoc-setup              menu
 #   sudo minisoc-setup --rollback   retour à la configuration précédente (lancé seul si non confirmée)
-#   sudo minisoc-setup --acces-web  listes du pare-feu recopiées pour l'interface web (après modification à la main
-#                                   de firewall.conf ; lancé aussi par minisoc-update)
+#   sudo minisoc-setup --relire     firewall.conf modifié à la main : SSH, pare-feu et interface web réappliqués
+#   sudo minisoc-setup --acces-web  listes du pare-feu recopiées pour l'interface web seule (lancé par minisoc-update)
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "À lancer avec sudo."; exit 1; }
 
@@ -58,6 +58,12 @@ if [ "${1:-}" = "--rollback" ]; then
 fi
 if [ "${1:-}" = "--acces-web" ]; then
   web_access
+  exit 0
+fi
+if [ "${1:-}" = "--relire" ]; then
+  apply_all
+  web_access
+  echo "SSH, pare-feu et interface web réappliqués depuis $FW."
   exit 0
 fi
 
@@ -454,7 +460,7 @@ s_apply() {
   for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS" "$NOTES_FILE"; do if [ -f "$f" ]; then cp -p "$f" "$f.prev"; fi; done
   cat > "$FW" <<EOF
 # Pare-feu du Mini-SOC : adresses autorisées. Écrit par sudo minisoc-setup le $(date '+%d/%m/%Y %H:%M').
-# Après modification à la main : sudo systemctl restart minisoc-firewall && sudo minisoc-setup --acces-web
+# Après modification à la main : sudo minisoc-setup --relire (SSH, pare-feu, interface web)
 # Description de chaque adresse : /etc/minisoc/firewall-notes.conf
 LAN_IF="$LAN_IF"
 

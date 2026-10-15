@@ -1,13 +1,19 @@
 #!/bin/sh
 # Écrit /etc/ssh/sshd_config.d/10-minisoc.conf (doc 04 § 4.3 et § 8) selon l'état de la VM :
 # - clé uniquement dès qu'une clé est déposée pour adminsoc, mot de passe sinon (installation en cours) ;
+# - compte adminsoc autorisé depuis les seuls postes DSI (ADMINS de firewall.conf) : le pare-feu ouvre aussi le
+#   port SSH au serveur de sauvegarde, qui ne doit pouvoir ouvrir que le compte minisoc-backup ;
 # - compte minisoc-backup autorisé depuis le seul serveur de sauvegarde (BACKUP_SERVER de firewall.conf).
 # Ne recharge pas sshd : l'appelant vérifie (sshd -t) puis recharge.
 set -eu
+ADMINS=""
 BACKUP_SERVER=""
 SSH_PORT=22
 [ -f /etc/minisoc/firewall.conf ] && . /etc/minisoc/firewall.conf
-users="adminsoc"
+users=""
+for a in $ADMINS; do users="$users adminsoc@$a"; done   # adresses ou plages CIDR, comprises par AllowUsers
+users=${users# }
+[ -n "$users" ] || users="adminsoc"   # pas encore de firewall.conf (premier démarrage) : le pare-feu seul filtre
 if [ -n "$BACKUP_SERVER" ] && [ -s /var/lib/minisoc-backup/.ssh/authorized_keys ]; then
   users="$users minisoc-backup@$BACKUP_SERVER"
 fi

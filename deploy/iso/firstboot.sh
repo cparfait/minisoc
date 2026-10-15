@@ -356,7 +356,7 @@ install -m 0644 "$SRC/minisoc-firewall.service" /etc/systemd/system/minisoc-fire
 if [ ! -f /etc/minisoc/firewall.conf ]; then
   cat > /etc/minisoc/firewall.conf <<EOF
 # Pare-feu du Mini-SOC : adresses autorisées (adresses ou plages CIDR, séparées par des espaces).
-# Après modification : sudo systemctl restart minisoc-firewall. Assistant : sudo minisoc-setup
+# Après modification : sudo minisoc-setup --relire. Assistant : sudo minisoc-setup
 # MODE INITIAL écrit au premier démarrage : toutes les plages privées sont acceptées. À RESTREINDRE.
 LAN_IF="$iface"
 
