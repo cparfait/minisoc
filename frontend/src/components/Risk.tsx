@@ -1,8 +1,8 @@
-import { Flame, Link2, Monitor, User as UserIcon } from "lucide-react";
+import { Flame, Link2, Monitor, Network, User as UserIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, query } from "../api";
 import { usePolling } from "../hooks";
-import { timeAgo } from "../labels";
+import { moduleLabel, timeAgo } from "../labels";
 import { Card, Empty } from "./ui";
 
 export interface Contributor {
@@ -123,9 +123,39 @@ interface ChainDetails {
 }
 
 /** Fiche d'alerte : détail d'une alerte calculée (risque cumulé ou chaîne d'attaque). */
+interface SharedIpDetails {
+  ip: string;
+  tools: string[];
+  window_hours: number;
+  alerts: { alert_id: number; title: string; rule_id: string; severity: number; modules: string[]; ts: string }[];
+}
+
+/** UC-61 : la même adresse IP en alerte sur plusieurs outils. */
+function SharedIp({ shared }: { shared: SharedIpDetails }) {
+  return (
+    <Card title={`${shared.ip} : alertes de ${shared.tools.length} outils en ${shared.window_hours} h`} icon={Network}>
+      <p className="small">
+        Outils : {shared.tools.map((t) => moduleLabel(t)).join(", ")} ·{" "}
+        <Link to={`/events?ip=${encodeURIComponent(shared.ip)}&period=7j`}>tous les événements de cette adresse</Link>
+      </p>
+      <ol className="chain-steps">
+        {shared.alerts.map((a) => (
+          <li key={a.alert_id}>
+            <span className="muted small">{new Date(a.ts).toLocaleString("fr-FR")}</span>
+            <Link to={`/alerts/${a.alert_id}`}>{a.title}</Link>
+            <span className="chain-tactics">{a.modules.map((m) => moduleLabel(m)).join(" · ")} · {a.rule_id}</span>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
 export function DerivedDetails({ details }: { details: Record<string, unknown> }) {
   const risk = details.risk as EntityRisk | undefined;
   const chain = details.chain as ChainDetails | undefined;
+  const shared = details.shared_ip as SharedIpDetails | undefined;
+  if (shared) return <SharedIp shared={shared} />;
   if (!risk && !chain) return null;
   return (
     <Card title={chain ? "Étapes de la chaîne d'attaque" : "Composition du score de risque"} icon={chain ? Link2 : Flame}>

@@ -15,6 +15,7 @@ import M365Activity from "../components/M365Activity";
 import VpnActivity from "../components/VpnActivity";
 import CyberwatchExposure from "../components/CyberwatchExposure";
 import ParcExposure from "../components/ParcExposure";
+import { OgoSites } from "../components/Ogo";
 import { AlertsByTool, CertFr, KevOnFleet, MyAlerts, OpenIncidents, OverdueAlerts } from "../components/DashboardWidgets";
 import { Card, Empty, ErrorBanner, PageHeader, SeverityBadge } from "../components/ui";
 import { usePolling } from "../hooks";
@@ -77,6 +78,7 @@ const WIDGETS: WidgetDef[] = [
   { id: "kev", title: "Failles KEV présentes sur le parc", description: "CVE activement exploitées présentes (Cyberwatch).", zone: "right", hidden: true, options: [lines([5, 8, 15], 8)] },
   { id: "cyberwatch", title: "Vulnérabilités : actifs les plus exposés", description: "Synthèse Cyberwatch (failles KEV, prioritaires, fin de support).", zone: "right", hidden: true },
   { id: "ninjaone", title: "Parc : postes les plus exposés (NinjaOne)", description: "Vulnérabilités, antivirus, menaces (NinjaOne).", zone: "right", hidden: true },
+  { id: "ogo", title: "Sites web protégés par OGO", description: "Trafic, requêtes bloquées et protection de chaque site (OGO, 24 h).", zone: "right", hidden: true, options: [lines([5, 8, 15], 8)] },
   { id: "certfr", title: "CERT-FR : dernières publications", description: "Alertes et avis récents du CERT-FR.", zone: "right", hidden: true, options: [lines([4, 6, 10], 6)] },
 ];
 
@@ -319,6 +321,8 @@ export default function Dashboard() {
         return <CyberwatchExposure />;
       case "ninjaone":
         return <ParcExposure />;
+      case "ogo":
+        return <OgoSites lines={n} />;
       case "certfr":
         return <CertFr lines={n} />;
       default:

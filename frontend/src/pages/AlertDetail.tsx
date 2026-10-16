@@ -16,6 +16,7 @@ import Triage, { ToolTriage } from "../components/Triage";
 import { ImpactedHosts } from "../components/Hosts";
 import IncidentPicker, { IncidentBadge } from "../components/IncidentPicker";
 import IsolationPanel from "../components/IsolationPanel";
+import { OgoSeen } from "../components/Ogo";
 import { Card, ErrorBanner, MitreTags, PageHeader, SeverityBadge, StatusBadge, VerdictBadge } from "../components/ui";
 import { usePolling } from "../hooks";
 import { ACTION_LABEL, STATUS_LABEL, formatDate, formatNumber, moduleLabel } from "../labels";
@@ -404,6 +405,11 @@ export default function AlertDetail() {
           <IsolationPanel key={alert.id} alertId={alert.id} onDone={reload} />
         </Card>
       )}
+
+      <OgoSeen
+        key={`ogo-${alert.id}`}
+        ips={[...blockCandidates, String((alert.details.sample as Record<string, unknown> | undefined)?.["source.ip"] ?? "")]}
+      />
 
       {editable && blockCandidates.length > 0 && (
         <Card title="Bloquer sur le pare-feu">

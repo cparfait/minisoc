@@ -60,6 +60,26 @@ def handler(state):
             chunk = rows[page * size:(page + 1) * size]
             return httpx.Response(200, json={"content": chunk, "totalElements": len(rows),
                                              "last": (page + 1) * size >= len(rows)})
+        if path.endswith("/clusters"):
+            return httpx.Response(200, json=[{"cluster": {"uid": "c1", "name": ".OGO EUW2"}, "role": "USE"},
+                                             {"cluster": {"uid": "c2", "name": ".OGO EUW1"}, "role": "USE"}])
+        if "/metrics/" in path:
+            params = request.url.params
+            assert params["cluster"] in ("c1", "c2") and params["fromDate"].endswith("Z")
+            state.setdefault("metrics", []).append((path.split("/metrics/")[1], dict(params)))
+            if params["cluster"] == "c2":
+                return httpx.Response(200, json={} if path.endswith("count") else {"datas": [], "total": 0})
+            if params.get("ip.in") == "45.9.20.9":  # adresse inconnue des sites
+                return httpx.Response(200, json={"traffic": {"total": 0, "bySite": {}}} if path.endswith("count")
+                                      else {"datas": [], "total": 0})
+            if path.endswith("traffic/count"):
+                return httpx.Response(200, json={
+                    "traffic": {"total": 1200, "bySite": {"www.mairie.fr": 1000, "extranet.mairie.fr": 200}},
+                    "blocked": {"total": 150, "bySite": {"www.mairie.fr": 30, "extranet.mairie.fr": 120}},
+                    "banned": {"total": 40, "bySite": {"extranet.mairie.fr": 40}},
+                    "suspect": {"total": 5, "bySite": {"www.mairie.fr": 5}}})
+            return httpx.Response(200, json={"datas": [{"uid": "sqli", "name": "SQL injection", "value": 90},
+                                                       {"uid": "scan", "name": "Scanner", "value": 60}], "total": 150})
         if path.endswith("/sites"):
             return httpx.Response(200, json={"content": [{"domainName": d} for d in SITES], "last": True})
         domain = path.rsplit("/", 1)[-1]
@@ -156,3 +176,35 @@ def test_ogo_settings_validation():
     else:
         raise AssertionError("adresse en clair acceptée")
     assert json.dumps(ogo.site_state(SITES["www.mairie.fr"]))  # sérialisable (comparaison des états)
+
+
+async def test_ogo_summary_by_site_and_cache():
+    redis, state = FakeRedis(), {}
+    http, api = client(state)
+    async with http:
+        connector = ogo.OgoConnector(None, redis)
+        await connector.check_sites(api, now=NOW)
+        summary = await connector.refresh_summary(api, now=NOW)
+        assert await connector.refresh_summary(api, now=NOW) is None  # moins d'un quart d'heure : pas relu
+    assert summary["totals"] == {"traffic": 1200, "blocked": 150, "banned": 40, "suspect": 5, "robot": 0, "analyzed": 0}
+    first = summary["sites"][0]
+    assert first["site"] == "extranet.mairie.fr" and first["blocked"] == 120 and first["state"]["passthroughMode"]
+    assert summary["categories"][0] == {"name": "SQL injection", "count": 90}
+    assert json.loads(redis.kv[ogo.SUMMARY_KEY])["organization"] == "mairie"
+    assert all("ip.in" not in p for _, p in state["metrics"])
+
+
+async def test_ogo_ip_activity(monkeypatch):
+    real = httpx.AsyncClient
+    state = {}
+    monkeypatch.setattr(ogo, "make_http", lambda cfg: real(transport=httpx.MockTransport(handler(state))))
+    redis = FakeRedis()
+    seen = await ogo.ip_activity(CFG, redis, "45.9.20.1", now=NOW)
+    assert seen["totals"]["blocked"] == 150 and seen["days"] == 7 and seen["ip"] == "45.9.20.1"
+    assert {p["ip.in"] for _, p in state["metrics"]} == {"45.9.20.1"}
+    assert {p["fromDate"] for _, p in state["metrics"]} == {"2026-10-09T12:00:00Z"}
+    calls = len(state["metrics"])
+    assert (await ogo.ip_activity(CFG, redis, "45.9.20.1", now=NOW))["totals"]["traffic"] == 1200
+    assert len(state["metrics"]) == calls  # en cache
+    unknown = await ogo.ip_activity(CFG, redis, "45.9.20.9", now=NOW)
+    assert unknown["totals"]["traffic"] == 0 and unknown["sites"] == []

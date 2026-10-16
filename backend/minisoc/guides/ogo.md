@@ -11,6 +11,17 @@ OGO protège les sites web publics (WAF, anti-DDoS, robots). Le Mini-SOC lit son
   - nouvelles IP bannies, erreurs 4xx/5xx, configuration courante → événements consultables dans Recherche.
 - **État des sites**, chaque heure : protection contournée (*passthrough*), mode audit (détecte sans bloquer),
   site hors ligne ou DNS en erreur → alerte **UC-60** ; le retour à la normale est consigné.
+- **Trafic des sites**, tous les quarts d'heure : requêtes reçues, bloquées et bannies sur 24 h, par site, et
+  catégories d'attaques → carte « Sites web protégés par OGO » du tableau de bord (Personnaliser › l'afficher).
+
+## Corrélations par adresse IP
+- **UC-62** : une adresse bannie par OGO (ou en tête d'un pic de bannissements) obtient ensuite, sous 72 h, une
+  connexion réussie (VPN, portail, Microsoft 365, poste) → alerte critique.
+- **UC-61** : une même adresse IP publique en alerte sur au moins deux outils en 24 h (OGO, pare-feu, Microsoft
+  365, CrowdSec…) → alerte haute, critique à partir de trois outils. Calculée toutes les 5 minutes.
+- **« Vu par OGO »** : dans le détail de toute alerte qui cite une adresse IP publique, le Mini-SOC demande à OGO
+  combien de requêtes cette adresse a envoyées aux sites sur 7 jours (bloquées, bannies, sites visés, types
+  d'attaques). Réponse mise en cache 10 minutes.
 
 L'API d'OGO ne fournit pas le détail requête par requête : pour enquêter sur une attaque, ouvrir le tableau de
 bord OGO (lien « Ouvrir dans OGO Security » de l'alerte).
@@ -44,6 +55,9 @@ appelé et de la clé (méthode du fournisseur Terraform officiel d'OGO).
 - **Intégrations** : la fiche passe à « En service » dans la minute. Sans réponse d'OGO pendant 1 h (clé
   régénérée, compte désactivé), la source est signalée silencieuse (UC-16).
 - **Recherche** : `module=ogo` ; à la première heure, un événement `site_state` par site protégé.
+- **Tableau de bord** › Personnaliser : afficher « Sites web protégés par OGO » ; chiffres sous un quart d'heure.
+  Vide avec « synthèse du trafic indisponible » dans le journal du worker : le rôle du compte ne donne pas accès
+  aux métriques (passer au rôle supérieur en lecture).
 - Les premières alertes UC-17 donnent la sévérité OGO (1 à 3) : vérifier qu'elle correspond à celle du
   tableau de bord, et ajuster au besoin dans **Paramètres › Détection**.
 

@@ -5,7 +5,10 @@ OGO ne donne pas le détail requête par requête par l'API ; il fournit :
   limitation de débit), de surveillance (erreurs 5xx, certificat, DNS) et d'activité (configuration des sites,
   utilisateurs, paramètres de protection), triés par date ; relus depuis le dernier événement vu ;
 - GET /v2/organizations/{code}/sites puis /sites/{domaine} : état de chaque site, chaque heure ; un message n'est
-  publié qu'au changement (protection contournée « passthrough », mode audit, site hors ligne…).
+  publié qu'au changement (protection contournée « passthrough », mode audit, site hors ligne…) ;
+- GET /v2/organizations/{code}/metrics/… (par cluster) : trafic, requêtes bloquées et bannies par site sur 24 h,
+  catégories d'attaques (synthèse du tableau de bord, tous les quarts d'heure), et activité d'une adresse IP
+  donnée sur les sites (panneau « Vu par OGO » des alertes, à la demande).
 
 Authentification (fournisseur Terraform officiel d'OGO) : en-tête `X-Ogo-Auth: <e-mail>;md5(<chemin>-<clé>)`, le
 chemin de l'URL sans paramètres. La clé ne circule jamais. Clé d'API d'un compte OGO au rôle « Viewer » de
@@ -36,6 +39,12 @@ SEEN_PREFIX = "minisoc:seen:ogo:"
 SEEN_TTL = 30 * 86400
 SITES_KEY = "minisoc:ogo:sites"  # état connu de chaque site (JSON), pour ne publier que les changements
 SITES_CHECKED_KEY = "minisoc:ogo:sites:checked"
+SUMMARY_KEY = "minisoc:ogo:summary"  # synthèse du tableau de bord (JSON)
+IP_CACHE_PREFIX = "minisoc:ogo:ip:"  # activité d'une IP sur les sites (JSON), le temps de IP_CACHE_SECONDS
+IP_CACHE_SECONDS = 600
+SUMMARY_SECONDS = 900
+IP_DAYS = 7
+COUNTERS = ("traffic", "blocked", "banned", "suspect", "robot", "analyzed")
 POLL_SECONDS = 60
 SITES_SECONDS = 3600
 FIRST_DAYS = 7  # premier passage : journal des 7 derniers jours
@@ -121,6 +130,40 @@ class OgoClient:
     async def site(self, domain: str) -> dict:
         return await self.get(f"/v2/organizations/{await self.org()}/sites/{domain}")
 
+    async def clusters(self) -> list[dict]:
+        data = await self.get(f"/v2/organizations/{await self.org()}/clusters")
+        return [c.get("cluster") or {} for c in data or [] if (c.get("cluster") or {}).get("uid")]
+
+    async def metrics(self, kind: str, cluster: str, since: datetime, until: datetime, ip: str = "") -> dict:
+        """kind : traffic/count (compteurs par site) ou attacks/by-category ; filtré sur une IP si demandé."""
+        params = {"cluster": cluster, "fromDate": _iso(since), "toDate": _iso(until)}
+        if ip:
+            params["ip.in"] = ip
+        return await self.get(f"/v2/organizations/{await self.org()}/metrics/{kind}", params) or {}
+
+    async def activity(self, since: datetime, until: datetime, ip: str = "") -> dict:
+        """Compteurs (total et par site) et catégories d'attaques, tous clusters confondus."""
+        totals = {k: 0 for k in COUNTERS}
+        by_site: dict[str, dict[str, int]] = {}
+        categories: dict[str, int] = {}
+        for cluster in await self.clusters():
+            counts = await self.metrics("traffic/count", cluster["uid"], since, until, ip)
+            for counter in COUNTERS:
+                block = counts.get(counter) or {}
+                totals[counter] += int(block.get("total") or 0)
+                for site, value in (block.get("bySite") or {}).items():
+                    by_site.setdefault(site, {k: 0 for k in COUNTERS})[counter] += int(value or 0)
+            attacks = await self.metrics("attacks/by-category", cluster["uid"], since, until, ip)
+            for item in attacks.get("datas") or []:
+                name = str(item.get("name") or item.get("uid") or "?")
+                categories[name] = categories.get(name, 0) + int(item.get("value") or 0)
+        return {
+            "totals": totals,
+            "sites": [{"site": site, **values} for site, values in
+                      sorted(by_site.items(), key=lambda kv: (-kv[1]["blocked"], -kv[1]["traffic"]))],
+            "categories": [{"name": n, "count": c} for n, c in sorted(categories.items(), key=lambda kv: -kv[1]) if c],
+        }
+
 
 def site_state(config: dict) -> dict:
     """Champs suivis d'un site : ceux dont le changement intéresse la sécurité."""
@@ -144,6 +187,10 @@ class OgoConnector:
                         api = OgoClient(cfg, http)
                         count = await self.poll(api)
                         count += await self.check_sites(api)
+                        try:  # synthèse du tableau de bord : son échec ne doit pas bloquer le journal
+                            await self.refresh_summary(api)
+                        except (OgoError, httpx.HTTPError) as exc:
+                            log.warning("OGO : synthèse du trafic indisponible : %s", exc)
                     await bus.heartbeat(self.redis, MODULE)
                     if count:
                         log.info("OGO : %d nouvel(s) événement(s)", count)
@@ -195,6 +242,36 @@ class OgoConnector:
         await self.redis.set(SITES_KEY, json.dumps(current, ensure_ascii=False))
         await self.redis.set(SITES_CHECKED_KEY, now.isoformat())
         return await bus.publish(self.redis, MODULE, fresh)
+
+
+    async def refresh_summary(self, api: OgoClient, now: datetime | None = None, force: bool = False) -> dict | None:
+        """Tous les quarts d'heure : trafic, blocages et attaques des dernières 24 h, état des sites."""
+        now = now or datetime.now(timezone.utc)
+        current = json.loads(await self.redis.get(SUMMARY_KEY) or "null")
+        if not force and current and now - datetime.fromisoformat(current["at"]) < timedelta(seconds=SUMMARY_SECONDS):
+            return None
+        summary = await api.activity(now - timedelta(hours=24), now)
+        states = json.loads(await self.redis.get(SITES_KEY) or "{}")
+        known = {s["site"] for s in summary["sites"]}
+        summary["sites"] += [{"site": d, **{k: 0 for k in COUNTERS}} for d in sorted(states) if d not in known]
+        for row in summary["sites"]:
+            row["state"] = states.get(row["site"])
+        summary.update(organization=api.organization, at=now.isoformat())
+        await self.redis.set(SUMMARY_KEY, json.dumps(summary, ensure_ascii=False))
+        return summary
+
+
+async def ip_activity(cfg: dict, redis, ip: str, now: datetime | None = None) -> dict:
+    """Requêtes d'une adresse IP vers les sites protégés sur 7 jours (panneau « Vu par OGO »), mises en cache."""
+    cached = await redis.get(IP_CACHE_PREFIX + ip)
+    if cached:
+        return json.loads(cached)
+    now = now or datetime.now(timezone.utc)
+    async with make_http(cfg) as http:
+        result = await OgoClient(cfg, http).activity(now - timedelta(days=IP_DAYS), now, ip)
+    result.update(ip=ip, days=IP_DAYS, at=now.isoformat())
+    await redis.set(IP_CACHE_PREFIX + ip, json.dumps(result, ensure_ascii=False), ex=IP_CACHE_SECONDS)
+    return result
 
 
 def _normalize(date: str) -> str:

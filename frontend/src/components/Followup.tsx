@@ -53,7 +53,7 @@ export function ToolStateLine({ alert }: { alert: Alert }) {
 }
 
 const SYNCED = new Set(["harfanglab", "ninjaone", "cyberwatch", "varonis", "bitdefender"]);
-const CALCULATED = new Set(["UC-42", "UC-43", "UC-44", "UC-45"]);
+const CALCULATED = new Set(["UC-42", "UC-43", "UC-44", "UC-45", "UC-61"]);
 
 /** Marche à suivre pour agir dans l'outil d'origine : le Mini-SOC ne modifie pas les outils. */
 const STEPS: Record<string, string[]> = {
@@ -97,6 +97,13 @@ const STEPS: Record<string, string[]> = {
     "Vérifier l'action dans l'annuaire (Utilisateurs et ordinateurs Active Directory, ou journaux du contrôleur).",
     "Compte suspect : le désactiver ou réinitialiser son mot de passe ; groupe à privilèges : retirer l'ajout non prévu.",
     "Clôturer ici une fois traité.",
+  ],
+  ogo: [
+    "Ouvrir le tableau de bord OGO (bouton ci-dessous) › site concerné : trafic bloqué, catégories d'attaques, adresses et pays d'origine, pages visées.",
+    "Attaque en cours : vérifier que le site répond normalement ; si elle le dégrade, demander au support OGO une limitation de débit ou un géoblocage temporaire.",
+    "Protection contournée (passthrough), mode audit ou DNS en erreur : vérifier qui a fait le changement (journal d'activité OGO) et rétablir la protection si ce n'était pas prévu.",
+    "Utilisateur invité ou promu sans raison : le retirer, puis changer le mot de passe et régénérer la clé d'API du compte OGO à l'origine.",
+    "OGO ne gère pas d'état d'alerte : clôturer ici une fois traité.",
   ],
   m365: [
     "Ouvrir le centre d'administration Microsoft Entra : Utilisateurs › compte concerné › Journaux de connexion.",

@@ -269,7 +269,17 @@ class RiskJob:
 
     async def once(self) -> dict:
         from minisoc.models import Alert, Incident, IncidentEntry
-        from minisoc.risk import CHAIN_RULE, CHAIN_WINDOW, RISK_RULE, RISK_WINDOW, compute_risk, find_chains
+        from minisoc.risk import (
+            CHAIN_RULE,
+            CHAIN_WINDOW,
+            RISK_RULE,
+            RISK_WINDOW,
+            SHARED_IP_RULE,
+            SHARED_IP_WINDOW,
+            compute_risk,
+            find_chains,
+            find_shared_ips,
+        )
 
         now = _now()
         rules = self.rules()
@@ -327,6 +337,23 @@ class RiskJob:
                 if action == "created" and cfg.get("chain_auto_incident", True):
                     await self._incident(Incident, IncidentEntry, Alert, chain, alert)
                     report["incidents"] += 1
+        shared_rule = rules.by_id.get(SHARED_IP_RULE)
+        report["shared_ips"] = 0
+        if shared_rule is not None:
+            for shared in find_shared_ips(alerts, now):
+                values = {"source.ip": shared.ip, "value": len(shared.tools)}
+                det = Detection(
+                    rule=shared_rule, entity_key=f"source.ip={shared.ip}",
+                    severity=4 if len(shared.tools) >= 3 else shared_rule.severity_level,
+                    title=render_title(shared_rule.title, values), first_seen=_aware(shared.alerts[0]["ts"]),
+                    last_seen=max(_aware(a["ts"]) for a in shared.alerts), count=len(shared.alerts),
+                    metric=len(shared.tools), accumulate=False,
+                    details={"shared_ip": {"ip": shared.ip, "tools": shared.tools, "alerts": shared.alerts,
+                                           "window_hours": int(SHARED_IP_WINDOW.total_seconds() // 3600)},
+                             "sample": {"source.ip": shared.ip}, "sample_ips": [shared.ip]},
+                )
+                await self.raise_alert(det)
+                report["shared_ips"] += 1
         return report
 
     async def _resolve_lowered(self, rule_id: str, threshold: int, risks: dict) -> int:

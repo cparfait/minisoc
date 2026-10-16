@@ -1,0 +1,19 @@
+id: UC-61
+name: Même adresse IP en alerte sur plusieurs outils
+type: match
+severity: high
+description: >
+  En 24 heures, une même adresse IP publique est citée par des alertes d'au moins deux outils différents : pare-feu
+  (VPN, IPS, administration), Microsoft 365, OGO (attaque des sites web), CrowdSec, IOC, Vectra… Un même attaquant
+  qui frappe sur plusieurs fronts (site web puis VPN, messagerie puis pare-feu) est bien plus menaçant que chacune
+  des alertes prise seule. Trois outils ou plus : sévérité critique. Calculée toutes les 5 minutes
+  (minisoc/risk.py) ; les adresses internes sont exclues (machines : corroboration du score de risque).
+# Filtre jamais vérifié : la règle sert de modèle aux alertes calculées
+filter:
+  event.module: {eq: "__calcul__"}
+group_by: [source.ip]
+title: "{source.ip} en alerte sur {value} outils"
+dedup_window: 24h
+storm_limit: 0
+mitre: [T1595, T1110, T1190]
+playbook: playbooks/shared-ip.md

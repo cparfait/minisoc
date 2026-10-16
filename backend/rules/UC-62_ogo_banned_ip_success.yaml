@@ -1,0 +1,25 @@
+id: UC-62
+name: Connexion réussie depuis une IP bannie par OGO
+type: sequence
+severity: critical
+description: >
+  Une adresse IP bannie par OGO pour avoir attaqué un site web de la collectivité (ou en tête d'un pic de
+  bannissements) obtient ensuite, dans les 72 heures, une connexion réussie au VPN, au portail du pare-feu, à
+  Microsoft 365 ou à un poste : l'attaquant qui sondait le site dispose d'identifiants valides.
+sequence:
+  first:
+    event.module: ogo
+    event.action: [new_ip_blocked, high_banned_volume]
+    source.ip: {exists: true}
+  min_count: 1
+  within: 72h
+  then:
+    event.category: authentication
+    event.outcome: success
+    source.ip: {not_cidr: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8]}
+  join_on: source.ip
+window: 15m
+title: "Connexion réussie de {user.name} depuis {source.ip}, bannie par OGO"
+dedup_window: 24h
+mitre: [T1078, T1190, T1133]
+playbook: playbooks/vpn-success-after-failures.md

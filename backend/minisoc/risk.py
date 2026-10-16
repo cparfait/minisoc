@@ -11,10 +11,14 @@ qu'elle cite. Une attaque réelle produit souvent plusieurs petits signaux, igno
 **Chaîne d'attaque** (24 heures) : au moins 3 tactiques MITRE différentes sur une même entité, dont une étape
 avancée (exécution, persistance, élévation, identifiants, mouvement latéral, commande et contrôle, exfiltration,
 impact) → alerte critique et, si le réglage est actif, incident créé automatiquement.
+
+**Adresse IP partagée** (24 heures) : une même adresse IP publique citée par des alertes d'au moins deux outils
+différents (pare-feu, Microsoft 365, OGO, CrowdSec, IOC…) → alerte UC-61 : un même attaquant sur plusieurs fronts.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -33,8 +37,8 @@ from minisoc.frameworks import TACTICS, TECHNIQUES
 from minisoc.models import Alert
 from minisoc.replay import TACTIC_TAGS
 
-RISK_RULE, CHAIN_RULE, DECOY_RULE = "UC-43", "UC-44", "UC-45"
-DERIVED_RULES = {RISK_RULE, CHAIN_RULE}  # alertes calculées : n'entrent pas dans le calcul
+RISK_RULE, CHAIN_RULE, DECOY_RULE, SHARED_IP_RULE = "UC-43", "UC-44", "UC-45", "UC-61"
+DERIVED_RULES = {RISK_RULE, CHAIN_RULE, SHARED_IP_RULE}  # alertes calculées : n'entrent pas dans le calcul
 RISK_WINDOW = timedelta(days=7)
 CHAIN_WINDOW = timedelta(hours=24)
 SEVERITY_POINTS = {0: 0, 1: 3, 2: 8, 3: 20, 4: 40}
@@ -42,6 +46,8 @@ CATEGORY_FACTOR = {"threat": 1.0, "hygiene": 0.2, "info": 0.0}
 CRITICALITY_FACTOR = {"vital": 1.5, "high": 1.25, "normal": 1.0, "low": 0.75}
 LATE_TACTICS = {"TA0002", "TA0003", "TA0004", "TA0006", "TA0008", "TA0011", "TA0010", "TA0040"}
 CHAIN_MIN_TACTICS = 3
+SHARED_IP_WINDOW = timedelta(hours=24)
+NOT_TOOLS = {"syslog", "unparsed", ""}  # modules qui ne désignent pas un outil de détection
 
 
 def tactics_from_tags(tags: list[str]) -> list[str]:
@@ -272,3 +278,58 @@ def find_chains(alerts: list[Alert], rule_mitre: dict[str, list[str]], now: date
         ]
         chains.append(Chain(key[0], names[key], steps, [TACTICS.get(t, t) for t in sorted(tactics, key=_tactic_order)]))
     return chains
+
+
+@dataclass
+class SharedIp:
+    ip: str
+    tools: list[str]  # modules des alertes, triés
+    alerts: list[dict]  # {alert_id, title, rule_id, severity, modules, ts}
+
+    @property
+    def alert_ids(self) -> list[int]:
+        return [a["alert_id"] for a in self.alerts]
+
+
+def public_ip(value: str) -> str:
+    """Adresse IP publique normalisée, « » sinon (adresses internes, réservées, texte)."""
+    try:
+        address = ipaddress.ip_address(str(value).strip())
+    except ValueError:
+        return ""
+    return str(address) if address.is_global else ""
+
+
+def ips_of(alert: Alert) -> set[str]:
+    """Adresses IP publiques citées par l'alerte : entité, entités regroupées, événement déclencheur, exemples."""
+    details = alert.details or {}
+    found = {entity_parts(alert.entity_key).get("source.ip", "")}
+    found |= {entity_parts(k).get("source.ip", "") for k in (details.get("entities") or {})}
+    found.add(str((details.get("sample") or {}).get("source.ip") or ""))
+    found |= {str(ip) for ip in details.get("sample_ips") or []}
+    return {ip for ip in map(public_ip, found) if ip}
+
+
+def find_shared_ips(alerts: list[Alert], now: datetime | None = None) -> list[SharedIp]:
+    """Adresses IP publiques en alerte sur au moins deux outils différents en 24 heures (menaces seulement)."""
+    now = now or datetime.now(timezone.utc)
+    by_ip: dict[str, list[Alert]] = defaultdict(list)
+    for alert in alerts:
+        last = alert.last_seen if alert.last_seen.tzinfo else alert.last_seen.replace(tzinfo=timezone.utc)
+        category = (alert.details or {}).get("category") or "threat"
+        if alert.rule_id in DERIVED_RULES or alert.status == "false_positive" or category != "threat":
+            continue
+        if now - last > SHARED_IP_WINDOW:
+            continue
+        for ip in ips_of(alert):
+            by_ip[ip].append(alert)
+    out = []
+    for ip, items in by_ip.items():
+        tools = sorted({m for a in items for m in a.modules or []} - NOT_TOOLS)
+        if len(tools) < 2:
+            continue
+        items.sort(key=lambda a: a.first_seen)
+        out.append(SharedIp(ip, tools, [
+            {"alert_id": a.id, "title": a.title, "rule_id": a.rule_id, "severity": a.severity,
+             "modules": sorted(a.modules or []), "ts": a.first_seen.isoformat()} for a in items]))
+    return out
