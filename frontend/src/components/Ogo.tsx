@@ -46,17 +46,16 @@ function protection(state?: SiteState | null): { label: string; className: strin
 
 const percent = (part: number, total: number) => (total ? `${Math.round((100 * part) / total)} %` : "–");
 
-/** Tableau de bord : sites protégés par OGO, trafic et attaques bloquées sur 24 h. */
+/** Tableau de bord : sites protégés par OGO, trafic et attaques bloquées sur 24 h. Rien tant que le connecteur
+ * OGO n'est pas actif (carte affichée par défaut, sans encombrer le tableau de bord des sites sans OGO). */
 export function OgoSites({ lines = 8 }: { lines?: number }) {
   const { data } = usePolling(() => api<Activity>("/ogo/summary"), [], 300000);
-  if (!data) return null;
+  if (!data?.enabled) return null;
   const sites = data.sites ?? [];
   const weak = sites.filter((s) => protection(s.state).label !== "protégé" && s.state);
   return (
     <Card title="Sites web protégés par OGO (24 h)" icon={ShieldCheck}>
-      {!data.enabled ? (
-        <Empty>OGO n'est pas raccordé (Intégrations › OGO Security).</Empty>
-      ) : !data.at || !data.totals ? (
+      {!data.at || !data.totals ? (
         <Empty>Première synthèse en cours (sous un quart d'heure après le raccordement).</Empty>
       ) : (
         <>
