@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   Ban, ExternalLink, FileChartColumn, FilterX, LayoutDashboard, ListChecks, LogOut, MonitorPlay, Moon, Plug, Radar,
-  ScrollText, Settings as SettingsIcon, ShieldAlert, Siren, Sparkles, Sun, UserCog, Users as UsersIcon,
+  ChartNoAxesCombined, ScrollText, Settings as SettingsIcon, ShieldAlert, Siren, Sparkles, Sun, UserCog, Users as UsersIcon,
   type LucideIcon, Boxes, Bug, Crosshair, PanelLeftClose, PanelLeftOpen, Search as SearchIcon,
 } from "lucide-react";
 import { api } from "./api";
@@ -31,6 +31,7 @@ import Assets from "./pages/Assets";
 import AssetDetail from "./pages/AssetDetail";
 import Iocs from "./pages/Iocs";
 import Search from "./pages/Search";
+import Stats from "./pages/Stats";
 
 const UserContext = createContext<User | null>(null);
 export const useUser = () => useContext(UserContext);
@@ -56,6 +57,7 @@ const NAV_GROUPS: { title: string; items: NavItem[]; role?: "edit" | "admin" }[]
       { to: "/accounts", label: "Comptes AD", icon: UserCog },
       { to: "/cve", label: "Vulnérabilités", icon: Bug },
       { to: "/veille", label: "Veille", icon: Radar },
+      { to: "/stats", label: "Statistiques", icon: ChartNoAxesCombined },
       { to: "/reports", label: "Rapports", icon: FileChartColumn },
     ],
   },
@@ -253,6 +255,7 @@ function Shell({ user, setUser, theme, setTheme }: {
             <Route path="/iocs" element={<Iocs />} />
             <Route path="/incidents" element={<Incidents />} />
             <Route path="/incidents/:id" element={<IncidentDetail />} />
+            <Route path="/stats" element={<Stats />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/sources" element={<Navigate to="/integrations" replace />} />

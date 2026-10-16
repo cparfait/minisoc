@@ -17,6 +17,7 @@ from minisoc.api import (
     admin,
     ai,
     alerts,
+    analytics,
     archives,
     auth,
     data,
@@ -141,5 +142,5 @@ async def health_full(request: Request):
 
 for module in (auth, alerts, data, exceptions, ingest, wall, admin, ai, response_api, integrations_api, accounts_api,
                incidents, reports, detections, search, rules_admin, assets_api, iocs, archives, posture_api, trivy,
-               ogo):
+               ogo, analytics):
     app.include_router(module.router)
