@@ -73,7 +73,7 @@ l'interface (plus propre), soit `scripts/backup.sh` ici puis `scripts/restore.sh
 | 12 | Assistant IA | Clé du fournisseur choisi, ou adresse d'un Ollama joignable depuis la VM | Intégrations › Assistant IA |
 | 13 | Isolation (après essais) | Jeton HarfangLab avec le droit d'isolation ; clé GravityZone Incidents + Network | Intégrations › Isolation de poste |
 | — | NinjaOne | Exemple de réponse de l'API vulnérabilités (pour développer le connecteur) | à transmettre |
-| — | OGO Security | Possibilités d'export de l'offre (syslog CEF ou API) | à transmettre |
+| 10 ter | OGO Security | E-mail du compte et clé d'API (compte Viewer de préférence), code de l'organisation | Intégrations › OGO Security |
 
 ## 4. Essais à mener sur la VM
 

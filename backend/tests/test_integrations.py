@@ -27,7 +27,8 @@ def test_states():
     assert status(sophos, {"src_sophos_xgs_enabled": False}, {})["state"] == "disabled"
     harfang = status(BY_ID["harfanglab"], {"src_harfanglab_enabled": True}, {})
     assert harfang["state"] == "not_configured" and "Jeton d'API (lecture seule)" in harfang["missing"]
-    assert status(BY_ID["ogo"], {}, {})["state"] == "planned"
+    ogo = status(BY_ID["ogo"], {"src_ogo_enabled": True}, {})
+    assert ogo["state"] == "not_configured" and "Clé d'API" in ogo["missing"]
 
 
 def test_disabled_sources_are_dropped_and_not_monitored():

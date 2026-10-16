@@ -1,9 +1,53 @@
-# OGO Security (WAF) — à venir
+# OGO Security (WAF) : journal et état des sites par l'API
 
-Objectif : recevoir les attaques web bloquées, les bots et les IP bannies sur les sites protégés par OGO (UC-17).
+OGO protège les sites web publics (WAF, anti-DDoS, robots). Le Mini-SOC lit son API en **HTTPS sortant** : rien
+à ouvrir en entrée, rien n'est modifié dans OGO.
 
-## Pour finaliser ce connecteur
-1. Vérifier avec OGO les possibilités d'export de votre offre : **syslog** (idéalement CEF) ou **API**.
-2. Si le syslog est disponible : envoyer vers **{{MINISOC_HOST}}**, port **514/TCP** ; les messages CEF sont
-   déjà analysés (règle NATIVE) en attendant un analyseur dédié.
-3. Si seule une API existe : fournir sa documentation et un exemple de réponse.
+- **Journal OGO**, chaque minute (7 derniers jours au premier passage) :
+  - attaque en cours sur un site : pic de requêtes bannies, afflux de trafic ou de bande passante, limitation
+    de débit atteinte → alerte **UC-17** ;
+  - certificat en erreur ou bientôt expiré, DNS ne pointant plus vers OGO → alerte (règle NATIVE) ;
+  - site supprimé, utilisateur invité, promu ou retiré, paramètres de protection modifiés → alerte **UC-60** ;
+  - nouvelles IP bannies, erreurs 4xx/5xx, configuration courante → événements consultables dans Recherche.
+- **État des sites**, chaque heure : protection contournée (*passthrough*), mode audit (détecte sans bloquer),
+  site hors ligne ou DNS en erreur → alerte **UC-60** ; le retour à la normale est consigné.
+
+L'API d'OGO ne fournit pas le détail requête par requête : pour enquêter sur une attaque, ouvrir le tableau de
+bord OGO (lien « Ouvrir dans OGO Security » de l'alerte).
+
+## Prérequis
+- Un compte OGO avec une **clé d'API**. De préférence un compte dédié au rôle **Viewer** (lecture seule), avec
+  la double authentification, plutôt que le compte d'un administrateur.
+- La VM sort déjà en 443 vers Internet : rien à ajouter dans `sudo minisoc-setup`.
+
+## Étapes
+1. Tableau de bord OGO › **Mon compte › Mon profil › Authentification** › **Clé d'API** : générer la clé et la
+   copier.
+2. Facultatif : **Mon compte › Mon organisation › Paramètres** › **Code de l'organisation** (obligatoire si le
+   compte appartient à plusieurs organisations).
+3. Mini-SOC › **Intégrations › OGO Security › Configurer** :
+
+| Champ | Valeur |
+| --- | --- |
+| E-mail du compte OGO | adresse de connexion au tableau de bord du compte qui porte la clé |
+| Clé d'API | clé copiée à l'étape 1 |
+| Code de l'organisation | vide si le compte n'a qu'une organisation |
+| Adresse de l'API | `https://api.ogosecurity.com` (laisser la valeur par défaut) |
+
+4. **Enregistrer**, activer l'intégration, puis **Tester** : le résultat donne l'organisation, le nombre de
+   sites protégés et le nombre d'événements au journal sur 24 h.
+
+La clé ne circule jamais : chaque requête porte l'en-tête `X-Ogo-Auth` = e-mail et empreinte MD5 du chemin
+appelé et de la clé (méthode du fournisseur Terraform officiel d'OGO).
+
+## Vérifier
+- **Intégrations** : la fiche passe à « En service » dans la minute. Sans réponse d'OGO pendant 1 h (clé
+  régénérée, compte désactivé), la source est signalée silencieuse (UC-16).
+- **Recherche** : `module=ogo` ; à la première heure, un événement `site_state` par site protégé.
+- Les premières alertes UC-17 donnent la sévérité OGO (1 à 3) : vérifier qu'elle correspond à celle du
+  tableau de bord, et ajuster au besoin dans **Paramètres › Détection**.
+
+## En cas d'échec
+- « e-mail ou clé d'API refusés » : clé régénérée depuis, ou e-mail différent de celui du compte qui la porte.
+- « accès refusé » : le rôle du compte ne donne pas accès au journal ou aux sites de l'organisation.
+- « plusieurs organisations » : renseigner le code de l'organisation indiqué dans le message.

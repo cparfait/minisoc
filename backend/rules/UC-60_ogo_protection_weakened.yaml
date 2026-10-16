@@ -1,0 +1,18 @@
+id: UC-60
+name: Protection WAF affaiblie (OGO)
+type: match
+severity: from_event
+description: >
+  La protection d'un site par OGO est contournée (mode passthrough : trafic non filtré), réduite au mode audit
+  (attaques détectées mais plus bloquées), le site ne passe plus par OGO (DNS, hors ligne), ou un changement
+  sensible est fait dans OGO : site supprimé, utilisateur invité, promu ou retiré, paramètres de protection
+  modifiés. Légitime lors d'une intervention prévue ; sinon, compte OGO compromis ou erreur de manipulation.
+filter:
+  event.module: ogo
+  event.action: [site_passthrough, site_audit_mode, site_unreachable, site_deleted, user_invited,
+                 user_role_change, user_removed, brain_parameters_change]
+group_by: [host.name, event.action]
+title: "OGO : {rule.name} ({host.name|user.name})"
+dedup_window: 24h
+mitre: [T1562, T1098]
+playbook: playbooks/ogo-protection.md

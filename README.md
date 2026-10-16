@@ -64,7 +64,7 @@ NDR, identité, renseignement, enrichissement, réponse, IA) avec son état calc
 de données, silencieuse, à configurer, désactivée, à venir), un interrupteur d'activation, la procédure de
 raccordement, les paramètres et un bouton **Tester**. Désactiver une source ignore ses événements à la réception
 (compteur affiché) et la retire de la surveillance « source silencieuse » (UC-16, qui suit automatiquement les
-intégrations actives). Les solutions pas encore intégrées (NinjaOne, OGO, Microsoft 365, isolation de poste)
+intégrations actives). Les solutions pas encore intégrées
 apparaissent comme « à venir ».
 
 ### Sophos XGS (syslog)

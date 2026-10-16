@@ -16,6 +16,7 @@ from minisoc.parsers.dns import is_dns_json, looks_like_dns_debug, parse_dns_deb
 from minisoc.parsers.harfanglab import parse_harfanglab
 from minisoc.parsers.m365 import parse_m365
 from minisoc.parsers.ninjaone import parse_ninjaone
+from minisoc.parsers.ogo import parse_ogo
 from minisoc.parsers.sophos import looks_like_sophos, parse_sophos
 from minisoc.parsers.trivy import parse_trivy
 from minisoc.parsers.varonis import parse_varonis
@@ -73,6 +74,8 @@ def parse_message(kind: str, payload: str, *, bitdefender_url: str = "", harfang
             return parse_varonis(data, received)
         if kind == "vectra":
             return parse_vectra(data, received)
+        if kind == "ogo":
+            return parse_ogo(data, received)
         if kind == "trivy":
             return parse_trivy(data, received)
         raise ValueError(f"type de message inconnu : {kind}")

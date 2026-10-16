@@ -69,6 +69,7 @@ FIELDS: dict[str, Field] = {
     "src_dns_enabled": Field("integrations", "bool", False),
     "src_vectra_enabled": Field("integrations", "bool", False),
     "src_varonis_enabled": Field("integrations", "bool", False),
+    "src_ogo_enabled": Field("integrations", "bool", False),
     "src_syslog_enabled": Field("integrations", "bool", False),
     "geoip_enabled": Field("integrations", "bool", False),
     "bitdefender_token": Field("connectors", "str", "", secret=True, env="bitdefender_token"),
@@ -140,6 +141,11 @@ FIELDS: dict[str, Field] = {
     "vectra_client_secret": Field("connectors", "str", "", secret=True),
     "vectra_verify_tls": Field("connectors", "bool", True),
     "vectra_ca_cert": Field("connectors", "pem", ""),
+    # OGO Security (WAF) : compte en lecture seule (rôle Viewer) ; en-tête X-Ogo-Auth = e-mail + empreinte de la clé
+    "ogo_api_url": Field("connectors", "str", "https://api.ogosecurity.com"),
+    "ogo_email": Field("connectors", "str", ""),
+    "ogo_api_key": Field("connectors", "str", "", secret=True),
+    "ogo_organization": Field("connectors", "str", ""),  # vide : la seule organisation du compte
     # Microsoft 365 / Entra ID : inscription d'application (ActivityFeed.Read), journal d'audit unifié
     "m365_tenant_id": Field("connectors", "str", ""),
     "m365_client_id": Field("connectors", "str", ""),
@@ -279,6 +285,8 @@ def validate(key: str, value: Any) -> Any:
     if key == "ldap_url" and value:
         if not str(value).lower().startswith("ldaps://"):
             raise SettingsError("ldap_url : seul LDAPS est accepté (ldaps://serveur:636) ; le LDAP en clair est refusé")
+    if key == "ogo_api_url" and value and not str(value).lower().startswith("https://"):
+        raise SettingsError("ogo_api_url : adresse https:// attendue")
     if key in ("harfanglab_url", "crowdsec_url", "vectra_url") and value and not str(value).lower().startswith(("http://", "https://")):
         raise SettingsError(f"{key} : adresse http(s):// attendue")
     if key == "ai_base_url" and value and not str(value).lower().startswith(("http://", "https://")):

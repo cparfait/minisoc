@@ -344,9 +344,29 @@ CATALOG: tuple[Integration, ...] = (
     ),
     Integration(
         id="ogo", name="OGO Security (WAF)", vendor="OGO", category="Pare-feu applicatif",
-        modes=("API / export",), planned=True,
-        description="Attaques web bloquées, bots, IP bannies sur les sites protégés (UC-17).",
-        setup="Vérifier avec l'éditeur les possibilités d'export (API ou syslog) de votre offre.",
+        modes=("API",), enable_key="src_ogo_enabled", modules=("ogo",), silence_minutes=60,
+        description="Attaques web en cours sur les sites protégés : pic de bannissements, afflux de trafic, "
+                    "limitation de débit (UC-17) ; protection contournée ou en mode audit, site supprimé, "
+                    "utilisateur invité ou promu (UC-60) ; certificats et DNS. Lus par l'API (HTTPS sortant).",
+        fields=(
+            FieldUI("ogo_email", "E-mail du compte OGO", required=True, placeholder="soc@mairie.fr",
+                    help="Adresse de connexion au tableau de bord OGO du compte qui porte la clé d'API."),
+            FieldUI("ogo_api_key", "Clé d'API", "secret", required=True,
+                    help="Tableau de bord OGO › Mon compte › Mon profil › Authentification › Clé d'API."),
+            FieldUI("ogo_organization", "Code de l'organisation",
+                    help="Mon compte › Mon organisation › Paramètres. Vide : la seule organisation du compte."),
+            FieldUI("ogo_api_url", "Adresse de l'API",
+                    help="https://api.ogosecurity.com, sauf instance OGO dédiée."),
+        ),
+        test="ogo",
+        setup=(
+            "1. Dans OGO, de préférence un compte dédié au rôle **Viewer** (lecture seule), avec la double "
+            "authentification.\n"
+            "2. Ce compte › Mon compte › Mon profil › Authentification : générer la **clé d'API** et la copier.\n"
+            "3. Ici : e-mail du compte, clé d'API, code de l'organisation (facultatif) ; Enregistrer, puis Tester.\n"
+            "4. Le Mini-SOC lit le journal OGO chaque minute (7 derniers jours au premier passage) et l'état des "
+            "sites chaque heure, en HTTPS sortant : rien à ouvrir en entrée, rien n'est modifié dans OGO."
+        ),
     ),
     Integration(
         id="m365", name="Microsoft 365 / Entra ID", vendor="Microsoft", category="Identité",

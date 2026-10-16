@@ -20,8 +20,9 @@ intégration pas encore raccordée), avec l'adresse du Mini-SOC déjà renseign�
 | Blocage d'IP sur le Sophos XGS | API XML | [xgs_response.md](../backend/minisoc/guides/xgs_response.md) |
 | Assistant IA | API | [ai.md](../backend/minisoc/guides/ai.md) |
 | Cyberwatch (vulnérabilités) | API (lecture seule) | [cyberwatch.md](../backend/minisoc/guides/cyberwatch.md) |
-| NinjaOne, OGO Security, isolation de poste | à venir | [ninjaone.md](../backend/minisoc/guides/ninjaone.md), [ogo.md](../backend/minisoc/guides/ogo.md), [edr_isolation.md](../backend/minisoc/guides/edr_isolation.md) |
+| OGO Security (WAF) | API (clé d'API, lecture seule) | [ogo.md](../backend/minisoc/guides/ogo.md) |
+| NinjaOne, isolation de poste | à venir | [ninjaone.md](../backend/minisoc/guides/ninjaone.md), [edr_isolation.md](../backend/minisoc/guides/edr_isolation.md) |
 
 Ordre conseillé pour la mise en service sur la VM : GeoIP et veille, Sophos XGS, Active Directory, HarfangLab
-(déjà raccordé), Microsoft 365, CrowdSec, Bitdefender et Varonis (API, flux sortants), puis Vectra.
+(déjà raccordé), Microsoft 365, CrowdSec, Bitdefender et Varonis (API, flux sortants), puis Vectra et OGO.
 Le marqueur `{{MINISOC_HOST}}` des fichiers est remplacé à l'affichage par l'adresse du Mini-SOC.

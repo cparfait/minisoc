@@ -1,0 +1,16 @@
+id: UC-17
+name: Attaque web en cours sur un site protégé par OGO
+type: match
+severity: from_event
+description: >
+  OGO signale une attaque en cours sur un site qu'il protège : pic de requêtes bannies (scan, force brute,
+  injection), afflux anormal de trafic ou de bande passante (déni de service), limitation de débit atteinte.
+  OGO bloque déjà ; l'alerte permet de vérifier que le site tient et de repérer une campagne ciblée.
+filter:
+  event.module: ogo
+  event.action: [high_banned_volume, trafic_spike, site_rate_limit, increased_bandwidth]
+group_by: [host.name, rule.name]
+title: "OGO : {rule.name} sur {host.name}"
+dedup_window: 6h
+mitre: [T1190, T1498, T1595]
+playbook: playbooks/ogo-web-attack.md

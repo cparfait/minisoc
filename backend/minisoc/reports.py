@@ -26,7 +26,7 @@ SEVERITY_FR = {"critical": "critique", "high": "haute", "medium": "moyenne", "lo
 VERDICT_FR = {"attack": "attaque", "suspicious": "suspect", "benign": "erreur d'utilisateur"}
 MODULE_FR = {"sophos_xgs": "Sophos XGS", "bitdefender": "Bitdefender", "harfanglab": "HarfangLab",
              "windows": "Windows / AD", "m365": "Microsoft 365", "crowdsec": "CrowdSec", "vectra": "Vectra",
-             "varonis": "Varonis", "syslog": "Syslog générique", "unparsed": "Non analysé"}
+             "varonis": "Varonis", "ogo": "OGO Security", "syslog": "Syslog générique", "unparsed": "Non analysé"}
 SYSTEM_ACTORS = {"système", "system"}
 
 

@@ -26,6 +26,7 @@ from minisoc.connectors.gravityzone import GravityZoneConnector
 from minisoc.connectors.harfanglab import HarfangLabConnector
 from minisoc.connectors.m365 import M365Connector
 from minisoc.connectors.ninjaone import NinjaOneConnector
+from minisoc.connectors.ogo import OgoConnector
 from minisoc.connectors.varonis import VaronisConnector
 from minisoc.connectors.vectra import VectraConnector
 from minisoc.coverage import CoverageJob
@@ -568,6 +569,7 @@ async def main() -> None:
     cyberwatch = CyberwatchConnector(sessionmaker(), redis)
     varonis = VaronisConnector(sessionmaker(), redis)
     vectra = VectraConnector(sessionmaker(), redis)
+    ogo = OgoConnector(sessionmaker(), redis)
     geoip_updater = GeoIPUpdater(sessionmaker(), redis, settings.geoip_dir)
     trivy_local = TrivyLocalJob(sessionmaker(), redis, settings.trivy_dir)
     gravityzone = GravityZoneConnector(sessionmaker(), redis)
@@ -600,6 +602,7 @@ async def main() -> None:
         supervise("cyberwatch", cyberwatch.run),
         supervise("varonis", varonis.run),
         supervise("vectra", vectra.run),
+        supervise("ogo", ogo.run),
         supervise("bases GeoIP", geoip_updater.run),
         supervise("trivy (VM)", trivy_local.run),
         supervise("gravityzone", gravityzone.run),

@@ -153,10 +153,10 @@ async def test_integration(integration_id: str, request: Request, db: AsyncSessi
                            obj="integration:ninjaone", detail={"ok": ok})
         await db.commit()
         return {"ok": ok, "detail": detail}
-    if item.test in ("varonis", "gravityzone", "vectra"):
-        from minisoc.connectors import gravityzone, varonis, vectra
+    if item.test in ("varonis", "gravityzone", "vectra", "ogo"):
+        from minisoc.connectors import gravityzone, ogo, varonis, vectra
 
-        connector = {"varonis": varonis, "gravityzone": gravityzone, "vectra": vectra}[item.test]
+        connector = {"varonis": varonis, "gravityzone": gravityzone, "vectra": vectra, "ogo": ogo}[item.test]
         ok, detail = await connector.test(await settings_store.load(db, force=True))
         await audit.record(db, actor=user.username, ip=client_ip(request), action=f"{item.test}_test",
                            obj=f"integration:{item.id}", detail={"ok": ok})
