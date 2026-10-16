@@ -1,3 +1,6 @@
+# Python 3.14 (dernier correctif à chaque reconstruction) : au 16/10/2026, Python 3.15 est bloqué par
+# clickhouse-connect (requires_python <3.15) ; pyyaml, lz4 et zstandard n'ont pas encore de roue cp315 et l'image
+# n'a pas de compilateur. Revérifier à chaque paquet de mise à jour.
 FROM python:3.14-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
