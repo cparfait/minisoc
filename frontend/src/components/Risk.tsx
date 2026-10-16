@@ -107,9 +107,9 @@ export function RiskCard({ kind, name }: { kind: "host" | "account"; name: strin
           <Tools risk={data.risk} />
           <Contributors items={data.risk.contributors} />
           <p className="muted small">
-            Une détection compte une fois ; sévérité, tactiques supplémentaires (+10 chacune), outils supplémentaires
-            ayant signalé la même entité (+10 chacun) et criticité de l'inventaire pondèrent le total. Seuil
-            d'alerte : {data.threshold}.
+            Une détection compte une fois ; sévérité, tactiques supplémentaires (+10 chacune, une seule par
+            détection), outils supplémentaires ayant signalé la même entité (+10 chacun) et criticité de l'inventaire
+            pondèrent le total. Seuil d'alerte : {data.threshold}.
           </p>
         </>
       )}
@@ -119,7 +119,16 @@ export function RiskCard({ kind, name }: { kind: "host" | "account"; name: strin
 
 interface ChainDetails {
   tactics: string[];
-  steps: { alert_id: number; title: string; ts: string; tactics: string[] }[];
+  steps: {
+    alert_id: number;
+    title: string;
+    ts: string;
+    tactics: string[];
+    rule_id?: string;
+    modules?: string[];
+    counted?: string | null; // tactique retenue pour cette détection (une seule par détection)
+  }[];
+  window_hours?: number;
 }
 
 /** Fiche d'alerte : détail d'une alerte calculée (risque cumulé ou chaîne d'attaque). */
@@ -170,15 +179,43 @@ export function DerivedDetails({ details }: { details: Record<string, unknown> }
         </>
       )}
       {chain && (
-        <ol className="chain-steps">
-          {chain.steps.map((s) => (
-            <li key={s.alert_id}>
-              <span className="muted small">{new Date(s.ts).toLocaleString("fr-FR")}</span>
-              <Link to={`/alerts/${s.alert_id}`}>{s.title}</Link>
-              <span className="chain-tactics">{s.tactics.join(" · ")}</span>
-            </li>
-          ))}
-        </ol>
+        <>
+          <p className="small">
+            Tactiques retenues ({chain.tactics.length}) : {chain.tactics.join(" → ")}
+          </p>
+          <ol className="chain-steps">
+            {chain.steps.map((s) => (
+              <li key={s.alert_id}>
+                <span className="muted small">
+                  {new Date(s.ts).toLocaleString("fr-FR")}
+                  {s.modules && s.modules.length > 0 && <> · {s.modules.map((m) => moduleLabel(m)).join(", ")}</>}
+                  {s.rule_id && <> · {s.rule_id}</>}
+                </span>
+                <Link to={`/alerts/${s.alert_id}`}>{s.title}</Link>
+                <span className="chain-tactics">
+                  {s.counted !== undefined ? (
+                    s.counted ? (
+                      <>
+                        compte pour <strong>{s.counted}</strong>
+                        {s.tactics.length > 1 && <> (possibles : {s.tactics.join(" · ")})</>}
+                      </>
+                    ) : (
+                      <>ne compte pas (détection déjà retenue ou tactique déjà apportée) · {s.tactics.join(" · ")}</>
+                    )
+                  ) : (
+                    s.tactics.join(" · ")
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="muted small">
+            Méthode : sur {chain.window_hours ?? 24} h, chaque détection différente compte pour une seule tactique MITRE,
+            même si ses techniques en couvrent plusieurs (« Comptes valides » en couvre quatre). Il faut au moins 3
+            tactiques ainsi apportées, dont une étape avancée (exécution, persistance, élévation, identifiants,
+            mouvement latéral, commande et contrôle, exfiltration, impact).
+          </p>
+        </>
       )}
     </Card>
   );

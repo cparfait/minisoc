@@ -98,6 +98,33 @@ def test_attack_chain_needs_three_tactics_including_a_late_one():
     assert via_rules and "Accès aux identifiants" in via_rules[0].tactics
 
 
+def test_one_detection_counts_for_one_tactic():
+    """UC-03 (T1110 + T1078.002 + T1133) couvre 5 tactiques à elle seule : des échecs d'authentification sur un même
+    système ne sont pas une chaîne d'attaque, ni 5 tactiques au score de risque."""
+    from minisoc.risk import compute_risk, distinct_tactics, find_chains
+
+    mitre = {"UC-03a": ["T1110", "T1078.002", "T1133"], "UC-27": ["T1110"], "UC-26": ["T1110"]}
+    auth = [
+        alert(1, rule_id="UC-03a", rule="vpn"),
+        alert(2, rule_id="UC-03a", rule="vpn", hours=2),
+        alert(3, rule_id="UC-27", rule="admin"),
+        alert(4, rule_id="UC-26", rule="service"),
+        alert(5, rule_id="UC-27", rule="admin", hours=3),
+    ]
+    for a in auth:
+        a.modules = ["windows"]
+    assert find_chains(auth, mitre, now=NOW) == []
+    assert len(compute_risk(auth, mitre, now=NOW)[("host", "pc-1")].tactics) == 2  # accès initial, identifiants
+    # Trois détections différentes dont une étape avancée : chaîne, chaque étape annonce la tactique retenue
+    [chain] = find_chains([*auth, alert(6, rule="PowerShell", tactics=["TA0002"])], mitre, now=NOW)
+    assert len(chain.tactics) == 3 and "Exécution" in chain.tactics
+    assert sum(1 for s in chain.steps if s["counted"]) == 3 and chain.steps[0]["rule_id"]
+    # L'étape avancée est retenue même si un couplage plus grand sans elle existe
+    assert set(distinct_tactics({"a": {"TA0001", "TA0006"}, "b": {"TA0001"}}, must={"TA0006"}).values()) == {
+        "TA0001", "TA0006"}
+    assert distinct_tactics({"a": {"TA0001"}, "b": {"TA0001"}}, must={"TA0006"}) == {}
+
+
 def test_tactics_from_tool_tags():
     from minisoc.risk import tactics_from_raw, tactics_from_tags
 

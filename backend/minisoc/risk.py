@@ -5,12 +5,13 @@ qu'elle cite. Une attaque réelle produit souvent plusieurs petits signaux, igno
 - une même détection sur une même entité ne compte qu'une fois (les alertes répétées d'une tâche quotidienne ne
   gonflent pas le score) ; une détection répandue (20 machines ou plus) compte moitié moins ;
 - points selon la sévérité (faible 3, moyenne 8, haute 20, critique 40) ; hygiène du parc ×0,2, information ×0 ;
-- +10 par tactique MITRE supplémentaire (30 au plus) ; criticité de l'inventaire : vitale ×1,5, haute ×1,25,
-  basse ×0,75 ; faux positifs exclus.
+- +10 par tactique MITRE supplémentaire (30 au plus ; une détection compte pour une seule tactique) ; criticité de
+  l'inventaire : vitale ×1,5, haute ×1,25, basse ×0,75 ; faux positifs exclus.
 
-**Chaîne d'attaque** (24 heures) : au moins 3 tactiques MITRE différentes sur une même entité, dont une étape
-avancée (exécution, persistance, élévation, identifiants, mouvement latéral, commande et contrôle, exfiltration,
-impact) → alerte critique et, si le réglage est actif, incident créé automatiquement.
+**Chaîne d'attaque** (24 heures) : au moins 3 tactiques MITRE différentes sur une même entité, apportées par au
+moins 3 détections différentes (une détection compte pour une seule tactique), dont une étape avancée (exécution,
+persistance, élévation, identifiants, mouvement latéral, commande et contrôle, exfiltration, impact) → alerte
+critique et, si le réglage est actif, incident créé automatiquement.
 
 **Adresse IP partagée** (24 heures) : une même adresse IP publique citée par des alertes d'au moins deux outils
 différents (pare-feu, Microsoft 365, OGO, CrowdSec, IOC…) → alerte UC-61 : un même attaquant sur plusieurs fronts.
@@ -80,6 +81,42 @@ def alert_tactics(alert: Alert, rule_mitre: dict[str, list[str]]) -> set[str]:
     for technique in rule_mitre.get(alert.rule_id, []):
         found.update(TECHNIQUES.get(technique, ("", ()))[1])
     return found
+
+
+def _matching(groups: dict[str, set[str]], fixed: dict[str, str]) -> dict[str, str]:
+    """Couplage maximal détection → tactique (chemins augmentants), à partir des paires imposées `fixed`."""
+    owner = {t: d for d, t in fixed.items()}  # tactique -> détection
+    taken = set(owner)
+
+    def place(detection: str, seen: set[str]) -> bool:
+        for tactic in sorted(groups[detection] - taken, key=_tactic_order):
+            if tactic in seen:
+                continue
+            seen.add(tactic)
+            if tactic not in owner or place(owner[tactic], seen):
+                owner[tactic] = detection
+                return True
+        return False
+
+    for detection in sorted(set(groups) - set(fixed)):
+        place(detection, set())
+    return {d: t for t, d in owner.items()}
+
+
+def distinct_tactics(groups: dict[str, set[str]], must: set[str] | None = None) -> dict[str, str]:
+    """Tactiques réellement distinctes : chaque détection compte pour UNE tactique au plus. Une technique comme
+    « Comptes valides » (T1078) couvre quatre tactiques à elle seule : une connexion réussie après des échecs ne fait
+    pas une attaque en cinq étapes. `must` : le résultat doit contenir l'une de ces tactiques (vide sinon)."""
+    groups = {d: set(t) for d, t in groups.items() if t}
+    if not must:
+        return _matching(groups, {})
+    best: dict[str, str] = {}
+    for detection, tactics in sorted(groups.items()):
+        for tactic in sorted(tactics & must, key=_tactic_order):
+            found = _matching(groups, {detection: tactic})
+            if len(found) > len(best):
+                best = found
+    return best
 
 
 def entities_of(alert: Alert) -> set[tuple[str, str]]:
@@ -152,6 +189,7 @@ class EntityRisk:
     tactics: set[str] = field(default_factory=set)
     contributions: dict[str, dict] = field(default_factory=dict)  # détection -> {points, alert_id, title…}
     tools: set[str] = field(default_factory=set)  # outils de détection l'ayant signalée (menaces)
+    detection_tactics: dict[str, set[str]] = field(default_factory=dict)  # détection -> tactiques possibles
 
     def to_dict(self) -> dict:
         items = sorted(self.contributions.values(), key=lambda c: -c["points"])
@@ -212,8 +250,9 @@ def compute_risk(
                     "last_seen": last.isoformat(),
                     "modules": sorted(alert.modules or []),
                 }
-            risk.tactics |= tactics
+            risk.detection_tactics.setdefault(detection, set()).update(tactics)
     for (kind, _), risk in out.items():
+        risk.tactics = set(distinct_tactics(risk.detection_tactics).values())
         base = sum(c["points"] for c in risk.contributions.values())
         bonus = min(30, 10 * max(0, len(risk.tactics) - 1))
         # Corroboration : la même entité signalée par plusieurs outils de détection indépendants
@@ -263,20 +302,29 @@ def find_chains(alerts: list[Alert], rule_mitre: dict[str, list[str]], now: date
             names.setdefault(key, name)
     chains = []
     for key, items in by_entity.items():
-        tactics = set().union(*(t for _, t in items))
-        if len(tactics) < CHAIN_MIN_TACTICS or not tactics & LATE_TACTICS:
+        groups: dict[str, set[str]] = defaultdict(set)
+        for a, t_ in items:
+            groups[_detection(a)] |= t_
+        counted = distinct_tactics(groups, must=LATE_TACTICS)
+        if len(counted) < CHAIN_MIN_TACTICS:
             continue
         items.sort(key=lambda it: it[0].first_seen)
-        steps = [
-            {
+        steps, shown = [], set()
+        for a, t_ in items:
+            detection = _detection(a)
+            tactic = counted.get(detection) if detection not in shown else None
+            shown.add(detection)
+            steps.append({
                 "alert_id": a.id,
                 "title": a.title,
                 "ts": a.first_seen.isoformat(),
+                "rule_id": a.rule_id,
+                "modules": sorted(a.modules or []),
                 "tactics": [TACTICS.get(t, t) for t in sorted(t_, key=_tactic_order)],
-            }
-            for a, t_ in items
-        ]
-        chains.append(Chain(key[0], names[key], steps, [TACTICS.get(t, t) for t in sorted(tactics, key=_tactic_order)]))
+                "counted": TACTICS.get(tactic, tactic) if tactic else None,  # tactique retenue pour cette détection
+            })
+        tactics = sorted(counted.values(), key=_tactic_order)
+        chains.append(Chain(key[0], names[key], steps, [TACTICS.get(t, t) for t in tactics]))
     return chains
 
 
