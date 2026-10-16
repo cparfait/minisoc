@@ -47,6 +47,9 @@ table inet minisoc_host {
 EOF
 
 # ---------- 2. Les conteneurs (chaîne DOCKER-USER) ----------
+# Renvoi temporaire du syslog vers le relais de minisoc-update, resté en place après une mise à jour interrompue
+$IPT -t nat -S PREROUTING 2>/dev/null | grep -- '--comment minisoc-relais-syslog' | sed 's/^-A /-D /' |
+  while read -r rule; do eval "$IPT -t nat $rule" || true; done
 $IPT -N DOCKER-USER 2>/dev/null || true
 $IPT -F DOCKER-USER
 $IPT -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN

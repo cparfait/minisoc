@@ -101,6 +101,9 @@ install -m 0700 "$B/firstboot.sh" /usr/local/sbin/minisoc-firstboot
 install -m 0750 "$B/minisoc-setup.sh" /usr/local/sbin/minisoc-setup
 # Console de paramétrage : dialog (Échap, formulaires, couleurs) ; sans Internet, elle l'installera à son lancement
 command -v dialog >/dev/null 2>&1 || DEBIAN_FRONTEND=noninteractive apt-get install -y -q dialog >/dev/null 2>&1   || echo "${Y}dialog non installé (dépôts Debian injoignables ?) : sudo apt install dialog${N}"
+# Relais syslog pendant le redémarrage de Vector : conntrack oublie les flux UDP en cours pour qu'ils suivent le renvoi
+command -v conntrack >/dev/null 2>&1 || DEBIAN_FRONTEND=noninteractive apt-get install -y -q conntrack >/dev/null 2>&1 \
+  || echo "${Y}conntrack non installé : le syslog UDP peut manquer quelques secondes (sudo apt install conntrack)${N}"
 install -m 0750 "$B/minisoc-sshd-config.sh" /usr/local/sbin/minisoc-sshd-config
 install -m 0750 "$B/minisoc-firewall" /usr/local/sbin/minisoc-firewall
 install -m 0644 "$B/minisoc-firewall.service" /etc/systemd/system/minisoc-firewall.service
@@ -211,13 +214,91 @@ pg_major_migration() {
 # MIGRATION-PG-FIN
 pg_major_migration
 
+# ---------- Relais syslog : aucun journal perdu pendant que Vector est recréé ----------
+# Le port 514 est fermé quelques secondes quand « vector » est recréé (nouvelle image) : l'UDP reçu à ce moment est
+# perdu. Un Vector temporaire (service « vector-relais » : même image, même configuration) prend le relais : une
+# règle DNAT lui renvoie le 514 entrant, Vector est recréé, la règle est retirée, puis le relais transmet ce qu'il a
+# reçu et disparaît. Le filtrage ne change pas : DOCKER-USER teste le port d'origine (514) et les sources syslog
+# autorisées. Règle repérée par un commentaire, retirée en toute circonstance (trap, et minisoc-firewall).
+RELAY_TAG=minisoc-relais-syslog
+relay_rules() {  # relay_rules -I|-D <adresse du relais>
+  local lan_if proto
+  lan_if=$(. /etc/minisoc/firewall.conf && echo "$LAN_IF")
+  for proto in udp tcp; do
+    if [ "$1" = -I ]; then
+      iptables -w -t nat -I PREROUTING 1 -i "$lan_if" -p "$proto" --dport 514 -m comment --comment "$RELAY_TAG" \
+        -j DNAT --to-destination "$2:514"
+    else
+      iptables -w -t nat -D PREROUTING -i "$lan_if" -p "$proto" --dport 514 -m comment --comment "$RELAY_TAG" \
+        -j DNAT --to-destination "$2:514" 2>/dev/null || true
+    fi
+  done
+}
+forget_udp_flows() {  # les flux UDP déjà suivis gardent leur destination : on les oublie pour appliquer le renvoi
+  if command -v conntrack >/dev/null 2>&1; then conntrack -D -p udp --orig-port-dst 514 >/dev/null 2>&1 || true; fi
+}
+vector_started_since() {  # vector_started_since <service> <date> : « Vector has started » dans ses journaux (60 s)
+  for _ in $(seq 30); do
+    if docker compose --profile relais logs --no-log-prefix --since "$2" "$1" 2>/dev/null | grep -q 'Vector has started'
+    then return 0; fi
+    sleep 2
+  done
+  return 1
+}
+recreate_vector_with_relay() {
+  local relay_ip="" since
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if docker compose --profile relais up -d --no-deps vector-relais >/dev/null 2>&1 \
+     && vector_started_since vector-relais "$since"; then
+    relay_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+      "$(docker compose --profile relais ps -q vector-relais)" 2>/dev/null || true)
+  fi
+  # Quoi qu'il arrive ensuite (erreur, Ctrl+C), le renvoi et le relais sont retirés
+  trap 'relay_rules -D "'"$relay_ip"'"; forget_udp_flows; docker compose --profile relais rm -sf vector-relais \
+    >/dev/null 2>&1; rm -rf "$(dirname "$B")"' EXIT
+  if [ -z "$relay_ip" ] || ! relay_rules -I "$relay_ip"; then
+    echo "${Y}Relais syslog indisponible : Vector recréé sans relais (quelques secondes sans réception syslog).${N}"
+    relay_rules -D "$relay_ip"
+    docker compose --profile relais rm -sf vector-relais >/dev/null 2>&1 || true
+    trap 'rm -rf "$(dirname "$B")"' EXIT
+    docker compose up -d --no-deps vector
+    return 0
+  fi
+  forget_udp_flows
+  echo "Port 514 renvoyé vers le relais ($relay_ip) ; Vector recréé."
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  docker compose up -d --no-deps vector
+  vector_started_since vector "$since" || echo "${Y}Démarrage de Vector non confirmé dans ses journaux.${N}"
+  relay_rules -D "$relay_ip"
+  forget_udp_flows
+  trap 'rm -rf "$(dirname "$B")"' EXIT
+  # Connexions TCP ouvertes sur le relais : fermées à son arrêt, les équipements se reconnectent au Vector principal.
+  # Arrêt progressif : le relais transmet d'abord ce qu'il a reçu (le reste attend dans son tampon disque).
+  sleep 5
+  docker compose --profile relais stop -t 60 vector-relais >/dev/null 2>&1 || true
+  docker compose --profile relais rm -f vector-relais >/dev/null 2>&1 || true
+  echo "${G}Relais syslog retiré : réception rendue au Vector principal.${N}"
+}
+
 step "redémarrage"
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)  # contrôle de la réception syslog : journaux de l'API depuis ce moment
 # Listes du pare-feu reprises par l'interface web (serveurs Trivy limités à l'envoi de leurs rapports), recopiées dans
 # .env depuis /etc/minisoc/firewall.conf : aussi pour une VM paramétrée avant que l'interface web ne les lise
 /usr/local/sbin/minisoc-setup --acces-web \
   || echo "${Y}Accès web des serveurs Trivy non recopié : sudo minisoc-setup --acces-web${N}"
-docker compose up -d --remove-orphans
+# Tout sauf Vector d'abord (pendant le redémarrage de l'API, Vector garde les journaux dans son tampon disque), puis
+# Vector, avec le relais syslog si son image a changé
+mapfile -t others < <(docker compose config --services | grep -vx vector)
+docker compose up -d --remove-orphans "${others[@]}"
+vector_image=$(docker compose config --images 2>/dev/null | grep -m1 '^minisoc-vector:' || true)
+vector_image_id=$(docker image inspect -f '{{.Id}}' "$vector_image" 2>/dev/null || true)
+running_image_id=$(docker inspect -f '{{.Image}}' "$(docker compose ps -q vector 2>/dev/null)" 2>/dev/null || true)
+if [ -n "$running_image_id" ] && [ -n "$vector_image_id" ] && [ "$running_image_id" != "$vector_image_id" ]; then
+  step "Vector : relais syslog pendant son redémarrage"
+  recreate_vector_with_relay
+else
+  docker compose up -d --no-deps vector
+fi
 pending=0
 for _ in $(seq 30); do
   pending=$(docker compose ps --format '{{.Service}} {{.Health}}' | awk '$2 != "" && $2 != "healthy"' | wc -l)

@@ -779,6 +779,31 @@ système (console de paramétrage, pare-feu, SSH, accueil), puis reconstruit et 
 construction échoue, tout est remis dans l'état précédent sans interrompre les conteneurs en service. Journal :
 `/var/log/minisoc-update.log`. Version installée : `/etc/minisoc/version` (affichée à la connexion).
 
+**Réception syslog pendant la mise à jour.** Les conteneurs sont reconstruits pendant que tout tourne ; à leur
+redémarrage, Vector garde les journaux dans son tampon disque tant que l'API redémarre, et les connecteurs d'API
+reprennent à leur point de reprise. Reste le redémarrage de Vector lui-même (port 514 fermé quelques secondes) :
+`minisoc-update` démarre alors un **relais** (service `vector-relais` : même image fraîchement reconstruite, même
+configuration, publié sur 127.0.0.1 seulement), renvoie vers lui le 514 entrant par une règle DNAT temporaire
+(commentaire `minisoc-relais-syslog`), recrée Vector, retire la règle, puis arrête le relais une fois ses envois
+transmis. Le filtrage ne change pas (DOCKER-USER : port d'origine 514, sources syslog déclarées). La règle est retirée
+quoi qu'il arrive (fin du script, erreur, Ctrl+C) et, à défaut, par `minisoc-firewall`. Le syslog TLS (6514) n'a
+pas de relais : NXLog se reconnecte et reprend à sa position dans le journal Windows. Outil `conntrack` installé
+par la mise à jour (oubli des flux UDP en cours pour qu'ils suivent le renvoi).
+
+**Recette du relais, sur une VM de test uniquement** (jamais la production pour un premier essai) : déclarer le
+poste de test dans les sources syslog UDP et TCP de la VM de test, activer l'intégration « Syslog générique », puis
+lancer depuis ce poste, juste avant `sudo minisoc-update …` sur la VM de test :
+
+```bash
+python tools/test_relais_syslog.py --host <IP de la VM de test> --duree 600
+```
+
+Le script envoie 10 messages numérotés par seconde en UDP et en TCP pendant toute la mise à jour, puis affiche les
+recherches à lancer (`<marqueur> udp | count`) et le nombre attendu. Attendu : aucun écart en UDP ; en TCP, au plus
+quelques messages au moment des reconnexions. Dans `/var/log/minisoc-update.log` : « Port 514 renvoyé vers le
+relais » puis « Relais syslog retiré » ; après coup, `sudo iptables -t nat -S PREROUTING | grep relais` ne renvoie
+rien.
+
 VM installée avant l'arrivée de cette commande (première fois seulement) :
 
 ```bash

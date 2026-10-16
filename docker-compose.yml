@@ -96,7 +96,7 @@ services:
   # Réception syslog des équipements (Sophos, Vectra, Varonis…) avec tampon disque, relayée à l'API
   vector:
     build: &vector-build { <<: *patched, args: { BASE: "timberio/vector:0.59.0-alpine" } }
-    image: minisoc-vector:0.59.0
+    image: &vector-image minisoc-vector:0.59.0
     restart: unless-stopped
     # Recharge la configuration quand vector.yaml change (sinon : docker compose up -d --force-recreate vector)
     command: ["--config", "/etc/vector/vector.yaml", "--watch-config"]
@@ -125,6 +125,24 @@ services:
     ports:
       - "${SYSLOG_BIND:-0.0.0.0}:6514:6514/tcp"
     depends_on: [api]
+    networks: [backend]
+
+  # Relais syslog : n'existe que pendant minisoc-update, le temps de recréer « vector » (le port 514 lui est
+  # renvoyé par une règle temporaire du pare-feu) ; même image fraîchement reconstruite, même configuration. Publié
+  # sur 127.0.0.1 seulement : le réseau n'y accède que par le renvoi du 514, filtré comme lui (DOCKER-USER).
+  vector-relais:
+    image: *vector-image
+    pull_policy: never
+    profiles: ["relais"]
+    restart: "no"
+    command: ["--config", "/etc/vector/vector.yaml"]
+    secrets: [minisoc_ingest_token]
+    volumes:
+      - ./deploy/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - vectorrelaisdata:/var/lib/vector  # tampon disque : ce qui n'a pas été transmis l'est au relais suivant
+    ports:
+      - "127.0.0.1:5514:514/udp"
+      - "127.0.0.1:5514:514/tcp"
     networks: [backend]
 
   # Trivy : jamais lancé par Compose, mais par le service minisoc-trivy de la VM (deploy/trivy), chaque semaine ou à
@@ -166,6 +184,7 @@ volumes:
   chdata:
   vectordata:
   vectortlsdata:
+  vectorrelaisdata:
   caddydata:
   archives:
   geoip:
