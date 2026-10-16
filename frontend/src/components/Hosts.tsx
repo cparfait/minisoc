@@ -4,7 +4,7 @@ import { api, query } from "../api";
 import { usePolling } from "../hooks";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { formatNumber } from "../labels";
+import { formatNumber, moduleLabel } from "../labels";
 import type { EventRow, ImpactedHost } from "../types";
 import { Card } from "./ui";
 
@@ -100,12 +100,13 @@ interface HostPatches {
   cve_count: number;
   prioritized_count: number;
   kev: string[];
-  patches: { product: string; from: string; to: string; patchable: boolean; cves: number; kev: string[]; prioritized: number; max_score: number | null }[];
+  patches: { product: string; from: string; to: string; kb?: boolean; patchable: boolean; cves: number; kev: string[]; prioritized: number; max_score: number | null }[];
   patches_total: number;
   known: boolean;
 }
 
-/** Ce qu'il faut mettre à jour sur la machine, et pourquoi : produit, version installée → version qui corrige. */
+/** Ce qu'il faut mettre à jour sur la machine, et pourquoi : produit, version installée → version qui corrige
+ * (une KB Windows n'a pas de version : « à installer »). */
 function PatchCell({ info }: { info?: HostPatches }) {
   if (!info) return <span className="muted">—</span>;
   if (!info.known) return <span className="muted small">correctifs relevés au prochain passage de Cyberwatch</span>;
@@ -120,7 +121,11 @@ function PatchCell({ info }: { info?: HostPatches }) {
           {info.patches.slice(0, 3).map((p) => (
             <li key={`${p.product}${p.to}`} title={p.kev.length ? `Failles activement exploitées corrigées : ${p.kev.join(", ")}` : undefined}>
               <strong>{p.product}</strong>
-              <span className="patch-version mono">{p.from || "?"} → {p.to || "dernière version"}</span>
+              {p.kb ? (
+                <span className="patch-version">à installer</span>
+              ) : (
+                <span className="patch-version mono">{p.from || "?"} → {p.to || "dernière version"}</span>
+              )}
               <span className="patch-meta">
                 {p.cves} CVE
                 {p.kev.length > 0 && <b className="patch-kev"> · {p.kev.length} KEV</b>}
@@ -154,7 +159,10 @@ export function ImpactedHosts({ hosts, events, selected = null, onSelect }: {
 }) {
   const [all, setAll] = useState(false);
   const byHost = new Map<string, { events: number; reference?: string; name: string }>();
+  // Outil qui a remonté chaque détection (GravityZone, Vectra…), affiché à côté de son nom
+  const ruleTools = new Map<string, Set<string>>();
   for (const e of events) {
+    if (e.rule_name && e.module) ruleTools.set(e.rule_name, (ruleTools.get(e.rule_name) ?? new Set()).add(moduleLabel(e.module)));
     if (!e.host_name) continue;
     const key = e.host_name.toLowerCase();
     const entry = byHost.get(key) ?? { events: 0, name: e.host_name };
@@ -236,7 +244,19 @@ export function ImpactedHosts({ hosts, events, selected = null, onSelect }: {
               </td>
               <td className="num">{formatNumber(r.count || r.events)}</td>
               {withPatches && <td><PatchCell info={patches[r.name]} /></td>}
-              {showRules && <td className="impacted-rules">{r.rules.length ? r.rules.join(" · ") : <span className="muted">—</span>}</td>}
+              {showRules && (
+                <td className="impacted-rules">
+                  {r.rules.length ? r.rules.map((rule, i) => {
+                    const tools = ruleTools.get(rule);
+                    return (
+                      <span key={rule}>
+                        {i > 0 && " · "}{rule}
+                        {tools && <span className="muted small"> ({[...tools].join(", ")})</span>}
+                      </span>
+                    );
+                  }) : <span className="muted">—</span>}
+                </td>
+              )}
               <td className="impacted-actions">
                 <Link to={`/events?host=${encodeURIComponent(r.name)}&period=7d`} className="console-link" title="Événements de la machine (7 jours)">
                   <ScrollText size={14} />

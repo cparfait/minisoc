@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import ssl
 import time
 from datetime import datetime, timezone
@@ -49,6 +50,9 @@ MAX_PAGES = 100  # 50 000 actifs
 DETAILS_PER_PASS = 400  # au-delà, la suite au passage suivant (ménage l'instance)
 TOP_CVES = 10
 MAX_PATCHES = 40  # correctifs conservés par actif (les plus utiles d'abord)
+# Mise à jour Windows : Cyberwatch donne en « version cible » l'identifiant Windows Update (GUID), sans intérêt à l'écran
+_KB = re.compile(r"\bKB\d{6,8}\b", re.I)
+_UPDATE_ID = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$", re.I)
 
 
 class CyberwatchError(RuntimeError):
@@ -232,10 +236,12 @@ def patches(state: dict, kev: set[str]) -> list[dict]:
     for update in state.get("updates") or []:
         codes = [c for c in update.get("cves") or [] if c in cves]
         scores = [cves[c][0] for c in codes if cves[c][0] is not None]
+        update_id = bool(_UPDATE_ID.match(update["to"]))
         out.append({
             "product": update["product"],
             "from": update["from"],
-            "to": update["to"],
+            "to": "" if update_id else update["to"],
+            "kb": update_id or bool(_KB.search(update["product"])),
             "patchable": update["patchable"],
             "cves": len(codes),
             "kev": [c for c in codes if c in kev],

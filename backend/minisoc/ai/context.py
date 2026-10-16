@@ -249,7 +249,8 @@ def _patches_section(cyber: dict[str, dict], p: Pseudonymizer) -> str:
                 detail += f", {patch['prioritized']} prioritaires"
             if patch.get("max_score") is not None:
                 detail += f", score max {patch['max_score']}"
-            version = f"{patch['from'] or '?'} → {patch['to'] or 'dernière version'}"
+            version = ("à installer" if patch.get("kb")
+                       else f"{patch['from'] or '?'} → {patch['to'] or 'dernière version'}")
             lines.append(f"    {_clean(patch['product'], 80)} {version} ({detail})")
         rest = int(info.get("patches_total") or 0) - len(info.get("patches") or [])
         if rest > 0:

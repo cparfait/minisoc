@@ -94,6 +94,7 @@ export default function AlertDetail() {
       </PageHeader>
       <p className="muted breadcrumb">
         <Link to="/alerts">Alertes</Link> / n° {alert.id}
+        {alert.modules.length > 0 && <> · source : <strong>{alert.modules.map(moduleLabel).join(", ")}</strong></>}
       </p>
       <ErrorBanner error={error} />
 

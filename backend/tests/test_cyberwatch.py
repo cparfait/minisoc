@@ -333,6 +333,16 @@ def test_pending_updates_ranked_and_listed_per_host():
     ranked = cw.patches(state, kev={"CVE-2021-41773"})
     assert ranked[0]["product"] == "apache httpd" and ranked[0]["kev"] == ["CVE-2021-41773"]
     assert ranked[1]["cves"] == 2 and ranked[1]["prioritized"] == 1 and ranked[1]["max_score"] == 7.8
+    assert not ranked[0]["kb"] and ranked[0]["to"] == "2.4.51"
+
+    # KB Windows : pas de version installée, l'identifiant Windows Update (GUID) en cible n'est pas une version
+    kb = cw.pending_updates({"updates": [{
+        "current": {}, "cve_announcements": ["CVE-2025-0001"],
+        "target": {"title": "2026-10 Cumulative Update for Windows Server 2019 for x64-based Systems (KB5126651)",
+                   "version": "09f6ed54-b3c1-4812-9982-eff7c37c53f7"}}]}, active)
+    assert cw.patches({"cves": active, "updates": kb}, kev=set())[0] == {
+        "product": "2026-10 Cumulative Update for Windows Server 2019 for x64-based Systems (KB5126651)",
+        "from": "", "to": "", "kb": True, "patchable": False, "cves": 1, "kev": [], "prioritized": 0, "max_score": 7.8}
 
     state["patches"] = ranked
     hosts = cw.hosts_patches({"52": state}, ["srv-reverse.chatillon.lan", "inconnue"])
