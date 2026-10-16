@@ -1,11 +1,11 @@
-import { ChartNoAxesCombined, Info, Gauge, Target, Timer, TriangleAlert } from "lucide-react";
+import { Activity, CalendarClock, ChartNoAxesCombined, Info, Gauge, Target, Timer, TriangleAlert, Waypoints } from "lucide-react";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, query } from "../api";
 import { Card, Empty, ErrorBanner, PageHeader } from "../components/ui";
 import { usePolling } from "../hooks";
-import { SEVERITY_LABEL, formatNumber, moduleLabel } from "../labels";
-import type { Severity } from "../types";
+import { SEVERITY_LABEL, STATUS_LABEL, formatNumber, formatShort, moduleLabel } from "../labels";
+import type { AlertStatus, Severity } from "../types";
 
 interface Dist {
   count: number;
@@ -29,8 +29,60 @@ interface Ranked {
   tools: string[];
   rules: number;
 }
+interface Source {
+  module: string;
+  total: number;
+  previous: number;
+  delta_pct: number | null;
+  series: number[];
+  monitored: boolean;
+  first: string | null;
+  last: string | null;
+  max_silence_minutes?: number;
+  silences?: number;
+  silent_minutes?: number;
+  availability?: number;
+  longest?: { start: string; end: string; minutes: number }[];
+}
+type Grid = number[][];
+interface HeatSummary {
+  total: number;
+  off_hours: number;
+  off_hours_pct: number | null;
+  peak: { day: string; hour: number; count: number } | null;
+}
 interface Analytics {
   period: { since: string; until: string; previous_since: string; timezone: string };
+  events_error: string;
+  sources: {
+    granularity: "day" | "week";
+    buckets: string[];
+    total: number;
+    previous_total: number;
+    sources: Source[];
+    silence_alerts: number;
+    data_start: string;
+    method: string[];
+  };
+  heatmap: {
+    grids: { alerts: Grid; failures: Grid; successes: Grid };
+    summary: { alerts: HeatSummary; failures: HeatSummary; successes: HeatSummary };
+    business: { days: number[]; start: number; end: number };
+    offhours_accounts: { user: string; n: number; ips: number; hosts: number; modules: string[]; last: string }[];
+    method: string[];
+  };
+  correlation: {
+    multi_tool_alerts: number;
+    considered: number;
+    corroborated_hosts: { host: string; tools: string[]; alerts: number }[];
+    corroborated_total: number;
+    derived: (QualityRow & { rule_id: string; label: string })[];
+    recent: { id: number; rule_id: string; title: string; severity: Severity; status: AlertStatus; created_at: string; why: string }[];
+    incidents: { opened: number; automatic: number };
+    blocks: { total: number; ips: number; active: number; failed: number; removed_manual: number; expired: number; from_alert: number };
+    isolations: { requested: number; failed: number; released: number; hosts: string[] };
+    method: string[];
+  };
   volumes: {
     granularity: "day" | "week";
     total: number;
@@ -103,6 +155,7 @@ const BY_SEVERITY: Severity[] = ["critical", "high", "medium", "low", "info"];
 const TOOL_CLASSES = ["tool-0", "tool-1", "tool-2", "tool-3", "tool-4", "tool-5", "tool-6"];
 
 const localDay = (d: Date) => d.toLocaleDateString("sv-SE");
+const signed = (n: number) => `${n > 0 ? "+" : ""}${n}`;
 
 function duration(minutes: number | null): string {
   if (minutes === null) return "—";
@@ -316,6 +369,258 @@ function DistCell({ d }: { d: Dist }) {
   );
 }
 
+/** Petite courbe d'événements par intervalle (une barre par jour ou par semaine). */
+function Sparkline({ values, buckets }: { values: number[]; buckets: string[] }) {
+  const max = Math.max(1, ...values);
+  const w = 120;
+  const h = 26;
+  const band = w / Math.max(1, values.length);
+  return (
+    <svg className="stats-spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h} role="img" aria-label="Événements par intervalle">
+      {values.map((v, i) => (
+        <rect key={i} x={i * band + band * 0.1} width={Math.max(0.5, band * 0.8)} y={h - (v / max) * h}
+          height={(v / max) * h || 0.5} className={v ? "fill-accent" : "stats-spark-empty"}>
+          <title>{`${tick(buckets[i] ?? "")} : ${formatNumber(v)} événements`}</title>
+        </rect>
+      ))}
+    </svg>
+  );
+}
+
+function SourcesCard({ s, error }: { s: Analytics["sources"]; error: string }) {
+  const silent = s.sources.filter((x) => x.monitored && (x.silences ?? 0) > 0);
+  return (
+    <Card title="Santé des sources" icon={Activity}>
+      {error ? (
+        <p className="text-bad">{error} : volumes et silences non calculés.</p>
+      ) : (
+        <p>
+          <strong>{formatNumber(s.total)}</strong> événements reçus ({s.previous_total ? `${signed(Math.round((100 * (s.total - s.previous_total)) / s.previous_total))} % vs période précédente` : "période précédente vide"}) ·{" "}
+          {silent.length ? <strong className="text-bad">{silent.length} source(s) surveillée(s) avec au moins un silence</strong> : "aucun silence sur les sources surveillées"} ·{" "}
+          {s.silence_alerts} alerte(s) « source silencieuse ».
+        </p>
+      )}
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th className="num">Événements</th>
+              <th className="num">vs préc.</th>
+              <th>{s.granularity === "day" ? "Par jour" : "Par semaine"}</th>
+              <th className="num" title="Délai de silence toléré">Délai</th>
+              <th className="num">Disponibilité</th>
+              <th className="num">Silences</th>
+              <th>Plus long silence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.sources.map((x) => (
+              <tr key={x.module}>
+                <td>{moduleLabel(x.module)}</td>
+                <td className="num">{formatNumber(x.total)}</td>
+                <td className={`num ${x.delta_pct !== null && x.delta_pct <= -50 ? "text-bad" : "muted"}`}>
+                  {x.delta_pct === null ? "—" : `${signed(x.delta_pct)} %`}
+                </td>
+                <td><Sparkline values={x.series} buckets={s.buckets} /></td>
+                {x.monitored ? (
+                  <>
+                    <td className="num muted">{duration(x.max_silence_minutes ?? null)}</td>
+                    <td className={`num ${(x.availability ?? 100) < 99 ? "text-bad" : ""}`}>
+                      {(x.availability ?? 0).toFixed(1).replace(".", ",")} %
+                    </td>
+                    <td className="num" title={`${duration(x.silent_minutes ?? 0)} cumulés`}>
+                      {x.silences ? `${x.silences} · ${duration(x.silent_minutes ?? 0)}` : <span className="muted">0</span>}
+                    </td>
+                    <td className="small">
+                      {x.longest?.[0] ? `${formatShort(x.longest[0].start)} → ${formatShort(x.longest[0].end)} (${duration(x.longest[0].minutes)})` : <span className="muted">—</span>}
+                    </td>
+                  </>
+                ) : (
+                  <td colSpan={4} className="muted small">non surveillée (pas de délai de silence)</td>
+                )}
+              </tr>
+            ))}
+            {!s.sources.length && <tr><td colSpan={8} className="muted">Aucun événement sur la période.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <Method lines={s.method} />
+    </Card>
+  );
+}
+
+const HEAT_METRICS = [
+  { key: "alerts" as const, label: "Alertes" },
+  { key: "failures" as const, label: "Échecs d'authentification" },
+  { key: "successes" as const, label: "Connexions réussies" },
+];
+const DAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+
+function HeatmapCard({ h, error }: { h: Analytics["heatmap"]; error: string }) {
+  const [metric, setMetric] = useState<"alerts" | "failures" | "successes">("alerts");
+  const grid = h.grids[metric];
+  const summary = h.summary[metric];
+  const max = Math.max(1, ...grid.flat());
+  const business = (d: number, hr: number) => h.business.days.includes(d + 1) && hr >= h.business.start && hr < h.business.end;
+  return (
+    <Card title="Activité par jour et heure" icon={CalendarClock}>
+      <div className="stats-toolbar">
+        <span className="muted">
+          {formatNumber(summary.total)} au total ·{" "}
+          <strong className={summary.off_hours_pct !== null && summary.off_hours_pct >= 30 ? "text-bad" : undefined}>
+            {summary.off_hours_pct === null ? "—" : `${summary.off_hours_pct} %`} hors heures ouvrées
+          </strong>{" "}
+          ({formatNumber(summary.off_hours)})
+          {summary.peak && <> · pic le {summary.peak.day} à {summary.peak.hour} h ({formatNumber(summary.peak.count)})</>}
+        </span>
+        <div className="segmented" role="group" aria-label="Indicateur">
+          {HEAT_METRICS.map((m) => (
+            <button key={m.key} type="button" className={metric === m.key ? "active" : ""} onClick={() => setMetric(m.key)}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error && metric !== "alerts" ? (
+        <p className="text-bad">{error} : répartition de l'authentification non calculée.</p>
+      ) : (
+        <div className="stats-heat" role="table" aria-label="Répartition par jour et par heure">
+          <span />
+          {Array.from({ length: 24 }, (_, hr) => (
+            <span key={hr} className="stats-heat-hour">{hr % 3 === 0 ? `${hr}h` : ""}</span>
+          ))}
+          {grid.map((row, d) => (
+            <Fragment key={d}>
+              <span className="stats-heat-day">{DAYS[d].slice(0, 3)}.</span>
+              {row.map((v, hr) => (
+                <span key={hr} className={`stats-heat-cell ${business(d, hr) ? "business" : ""}`}
+                  style={{ ["--level" as string]: v ? 0.15 + 0.85 * (v / max) : 0 }}
+                  title={`${DAYS[d]} ${hr} h - ${hr + 1} h : ${formatNumber(v)}${business(d, hr) ? " (heures ouvrées)" : " (hors heures ouvrées)"}`} />
+              ))}
+            </Fragment>
+          ))}
+        </div>
+      )}
+      <p className="muted small">Cases encadrées : heures ouvrées. Plus la case est colorée, plus le volume est élevé (échelle propre à l'indicateur affiché).</p>
+      <h3>Comptes connectés hors heures ouvrées</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Compte</th>
+            <th className="num">Connexions</th>
+            <th className="num">Adresses IP</th>
+            <th className="num">Machines</th>
+            <th>Sources</th>
+            <th>Dernière</th>
+          </tr>
+        </thead>
+        <tbody>
+          {h.offhours_accounts.map((a) => (
+            <tr key={a.user}>
+              <td><Link to={`/assets/account/${encodeURIComponent(a.user)}`} className="mono">{a.user}</Link></td>
+              <td className="num">{formatNumber(a.n)}</td>
+              <td className="num">{formatNumber(a.ips)}</td>
+              <td className="num">{formatNumber(a.hosts)}</td>
+              <td className="small muted">{a.modules.map(moduleLabel).join(", ")}</td>
+              <td className="small">{formatShort(a.last)}</td>
+            </tr>
+          ))}
+          {!h.offhours_accounts.length && <tr><td colSpan={6} className="muted">{error ? "Non calculé." : "Aucune connexion hors heures ouvrées."}</td></tr>}
+        </tbody>
+      </table>
+      <Method lines={h.method} />
+    </Card>
+  );
+}
+
+function CorrelationCard({ c, alertsLink }: { c: Analytics["correlation"]; alertsLink: (extra?: Record<string, string>) => string }) {
+  const b = c.blocks;
+  const iso = c.isolations;
+  return (
+    <Card title="Corrélation et réponse" icon={Waypoints}>
+      <p>
+        <strong>{formatNumber(c.multi_tool_alerts)}</strong> alerte(s) portant plusieurs outils sur {formatNumber(c.considered)} ·{" "}
+        <strong>{formatNumber(c.corroborated_total)}</strong> machine(s) signalée(s) par au moins deux outils ·{" "}
+        {c.incidents.automatic} incident(s) créé(s) automatiquement sur {c.incidents.opened} ouvert(s).
+      </p>
+      <div className="grid-2 stats-inner">
+        <div>
+          <h3>Alertes calculées</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Corrélation</th>
+                <th className="num">Alertes</th>
+                <th className="num">Ouvertes</th>
+                <th className="num">Faux positifs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.derived.map((d) => (
+                <tr key={d.rule_id}>
+                  <td><span className="mono">{d.rule_id}</span> {d.label}</td>
+                  <td className="num">{d.total ? <Link to={alertsLink({ rule_id: d.rule_id })}>{formatNumber(d.total)}</Link> : 0}</td>
+                  <td className="num">{formatNumber(d.open)}</td>
+                  <td className="num"><Rate value={d.fp_rate} closed={d.closed} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <h3 className="stats-subhead">Dernières chaînes et IP partagées</h3>
+          {c.recent.length ? (
+            <ul className="plain-list">
+              {c.recent.map((r) => (
+                <li key={r.id}>
+                  <span className={`sev-dot sev-bg-${r.severity}`} title={SEVERITY_LABEL[r.severity]} />
+                  <Link to={`/alerts/${r.id}`}>{r.title}</Link>{" "}
+                  <span className="muted small">
+                    {r.why} · {formatShort(r.created_at)} · {STATUS_LABEL[r.status] ?? r.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Aucune chaîne d'attaque ni IP partagée sur la période.</p>
+          )}
+        </div>
+        <div>
+          <h3>Machines corroborées</h3>
+          <table>
+            <thead>
+              <tr><th>Machine</th><th>Outils</th><th className="num">Alertes</th></tr>
+            </thead>
+            <tbody>
+              {c.corroborated_hosts.map((h) => (
+                <tr key={h.host}>
+                  <td><Link to={`/assets/host/${encodeURIComponent(h.host)}`} className="mono">{h.host}</Link></td>
+                  <td className="small">{h.tools.map(moduleLabel).join(", ")}</td>
+                  <td className="num">{formatNumber(h.alerts)}</td>
+                </tr>
+              ))}
+              {!c.corroborated_hosts.length && <tr><td colSpan={3} className="muted">Aucune machine signalée par deux outils.</td></tr>}
+            </tbody>
+          </table>
+          <h3 className="stats-subhead">Réponse</h3>
+          <ul className="plain-list">
+            <li>
+              <Link to="/blocks"><strong>{formatNumber(b.total)}</strong> blocage(s) d'IP</Link> ({formatNumber(b.ips)} adresse(s),{" "}
+              {b.from_alert} depuis une alerte) : {b.active} actif(s), {b.expired} levé(s) à expiration, {b.removed_manual} levé(s)
+              par une personne{b.failed ? <>, <span className="text-bad">{b.failed} en échec</span></> : null}.
+            </li>
+            <li>
+              <strong>{formatNumber(iso.requested)}</strong> demande(s) d'isolement de poste
+              {iso.failed ? <> dont <span className="text-bad">{iso.failed} en échec</span></> : null}, {iso.released} levée(s) d'isolement
+              {iso.hosts.length > 0 && <span className="muted small"> · {iso.hosts.join(", ")}</span>}.
+            </li>
+          </ul>
+        </div>
+      </div>
+      <Method lines={c.method} />
+    </Card>
+  );
+}
+
 export default function Stats() {
   const [params, setParams] = useSearchParams();
   const period = params.get("period") ?? "30d";
@@ -359,7 +664,7 @@ export default function Stats() {
   return (
     <>
       <PageHeader title="Statistiques" icon={ChartNoAxesCombined}
-        subtitle="Volumes, qualité des détections, délais de traitement, MITRE ATT&CK et cibles">
+        subtitle="Volumes, sources, qualité des détections, délais, MITRE ATT&CK, corrélation et activité horaire">
         <div className="segmented" role="group" aria-label="Période">
           {PERIODS.map((p) => (
             <button key={p.value} type="button" className={period === p.value ? "active" : ""}
@@ -515,6 +820,8 @@ export default function Stats() {
             </div>
             <Method lines={v.method} />
           </Card>
+
+          <SourcesCard s={data.sources} error={data.events_error} />
 
           <Card title="Qualité des détections" icon={Gauge}>
             <p>
@@ -781,6 +1088,9 @@ export default function Stats() {
             </div>
             <Method lines={m.method} />
           </Card>
+
+          <CorrelationCard c={data.correlation} alertsLink={alertsLink} />
+          <HeatmapCard h={data.heatmap} error={data.events_error} />
         </>
       )}
       {data && !data.volumes.total && <Empty>Aucune alerte créée sur cette période.</Empty>}

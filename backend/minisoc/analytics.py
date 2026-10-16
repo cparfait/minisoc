@@ -1,8 +1,10 @@
-"""Statistiques de la page « Statistiques » : volumes, qualité des détections, délais de traitement, MITRE et cibles.
+"""Statistiques de la page « Statistiques » : volumes, qualité des détections, délais de traitement, MITRE et cibles,
+santé des sources, carte jour × heure, corrélation et réponse.
 
-Calculs purs sur les objets de la base (alertes créées pendant la période, leur historique, incidents), sans requête :
-l'API charge les données, ce module compte. Chaque bloc renvoie sa **méthode** (source, filtres, formule, effectifs),
-affichée telle quelle dans l'interface : un chiffre doit pouvoir se vérifier, pas seulement se croire.
+Calculs purs sur les objets de la base (alertes créées pendant la période, leur historique, incidents, blocages) et
+sur les agrégats ClickHouse, sans requête : l'API charge les données, ce module compte. Chaque bloc renvoie sa
+**méthode** (source, filtres, formule, effectifs), affichée telle quelle dans l'interface : un chiffre doit pouvoir se
+vérifier, pas seulement se croire.
 """
 
 from __future__ import annotations
@@ -11,12 +13,21 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from minisoc.detections import CATEGORY_LABEL
+from minisoc.detections import CATEGORY_LABEL, DETECTION_TOOLS, alert_hosts, tools_by_host
 from minisoc.ecs import SEVERITY_NAMES, severity_name
 from minisoc.frameworks import TACTICS, TECHNIQUES
-from minisoc.models import OPEN_STATUSES, Alert, AlertHistory, Incident, IncidentEntry
+from minisoc.models import OPEN_STATUSES, Alert, AlertHistory, Block, Incident, IncidentEntry
 from minisoc.reports import SYSTEM_ACTORS, _minutes
-from minisoc.risk import DERIVED_RULES, alert_tactics, entities_of, ips_of
+from minisoc.risk import (
+    CHAIN_RULE,
+    DERIVED_RULES,
+    NOT_TOOLS,
+    RISK_RULE,
+    SHARED_IP_RULE,
+    alert_tactics,
+    entities_of,
+    ips_of,
+)
 
 MAX_DAYS = 366
 DAILY_MAX_DAYS = 92  # au-delà, une barre par semaine
@@ -28,6 +39,8 @@ NOISY_FP_RATE = 50  # … dont au moins 50 % de faux positifs
 BACKLOG_AGES = (("lt_1d", "moins de 24 h", timedelta(days=1)), ("lt_7d", "1 à 7 jours", timedelta(days=7)),
                 ("lt_30d", "7 à 30 jours", timedelta(days=30)), ("ge_30d", "plus de 30 jours", None))
 CONTAINED_LABELS = ("Maîtrisé", "Clos")  # libellés des changements d'état d'un incident (api/incidents.py)
+SILENCE_STEP = timedelta(minutes=5)  # précision des silences : événements regroupés par tranche de 5 minutes
+WEEKDAYS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
 
 
 def aware(value: datetime) -> datetime:
@@ -402,7 +415,8 @@ def mitre_targets(alerts: list[Alert], rule_mitre: dict[str, list[str]], top: in
         "ips": ranked(list(ips.values())),
         "method": [
             "Alertes créées pendant la période, **hors faux positifs** et hors alertes calculées (UC-43, UC-44, UC-61, "
-            f"qui reprennent d'autres alertes) : {len(kept)} alerte(s) retenue(s), {len(alerts) - len(kept)} écartée(s).",
+            f"qui reprennent d'autres alertes) : {len(kept)} alerte(s) retenue(s), "
+            f"{len(alerts) - len(kept)} écartée(s).",
             "Tactiques d'une alerte : celles des techniques MITRE de sa règle (page Règles), sinon les étiquettes "
             f"fournies par l'outil. {unmapped} alerte(s) retenue(s) sans tactique connue.",
             "Une technique peut relever de plusieurs tactiques (ex. T1078 « Comptes valides » : accès initial, "
@@ -415,5 +429,235 @@ def mitre_targets(alerts: list[Alert], rule_mitre: dict[str, list[str]], top: in
             "noms unifiés (nom court/complet, domaine) ; comptes système et comptes machine (finissant par $) "
             "exclus. Une alerte compte une fois par entité citée.",
             "IP : adresses **publiques** citées par l'alerte (adresses internes et réservées exclues).",
+        ],
+    }
+
+
+# ---------- Santé des sources ----------
+
+
+def source_health(
+    volume_rows: list[dict],
+    previous_rows: list[dict],
+    gap_rows: list[dict],
+    seen_rows: list[dict],
+    expected: dict[str, timedelta],
+    since: datetime,
+    until: datetime,
+    now: datetime,
+    tz: ZoneInfo,
+    retention_days: int,
+    silence_alerts: int,
+) -> dict:
+    """Événements reçus par outil et silences (aucun événement pendant plus que le délai toléré de la source).
+
+    volume_rows : {module, b (date du jour ou du lundi), n} ; previous_rows : {module, n} ;
+    gap_rows : {module, gap_start, gap_end} (tranches de 5 minutes consécutives séparées d'au moins le délai) ;
+    seen_rows : {module, first, last} ; expected : délai de silence toléré des sources surveillées."""
+    gran = granularity(since, until)
+    keys = buckets(since, until, gran, tz)
+    index = {k: i for i, k in enumerate(keys)}
+    end = min(until, now)
+    data_start = max(since, now - timedelta(days=retention_days))  # avant : événements supprimés (conservation)
+    span = max(timedelta(minutes=1), end - data_start)
+    series: dict[str, list[int]] = defaultdict(lambda: [0] * len(keys))
+    for r in volume_rows:
+        key = r["b"].isoformat() if hasattr(r["b"], "isoformat") else str(r["b"])
+        if key[:10] in index:
+            series[r["module"]][index[key[:10]]] += int(r["n"])
+    previous = {r["module"]: int(r["n"]) for r in previous_rows}
+    seen = {r["module"]: (aware(r["first"]), aware(r["last"])) for r in seen_rows}
+    gaps: dict[str, list[tuple[datetime, datetime]]] = defaultdict(list)
+    for r in gap_rows:
+        gaps[r["module"]].append((aware(r["gap_start"]) + SILENCE_STEP, aware(r["gap_end"])))
+
+    items = []
+    for module in sorted(set(series) | set(expected) | set(seen)):
+        values = series[module]
+        total = sum(values)
+        row = {"module": module, "total": total, "previous": previous.get(module, 0),
+               "delta_pct": pct(total - previous.get(module, 0), previous.get(module, 0)), "series": values,
+               "monitored": module in expected, "first": None, "last": None}
+        if module in seen:
+            row["first"], row["last"] = seen[module][0].isoformat(), seen[module][1].isoformat()
+        if module in expected:
+            limit = expected[module]
+            silences: list[tuple[datetime, datetime]] = []
+            if module not in seen:
+                silences.append((data_start, end))
+            else:
+                first, last = seen[module]
+                if first - data_start >= limit:
+                    silences.append((data_start, first))
+                silences += [(a, b) for a, b in gaps[module] if b - a >= limit]
+                if end - last >= limit:
+                    silences.append((last, end))
+            silent = sum(((b - a) for a, b in silences), timedelta())
+            silences.sort(key=lambda g: g[0] - g[1])  # les plus longs d'abord
+            row.update(
+                max_silence_minutes=int(limit.total_seconds() // 60),
+                silences=len(silences),
+                silent_minutes=round(silent.total_seconds() / 60),
+                availability=round(100 * max(0.0, 1 - silent / span), 1),
+                longest=[{"start": a.isoformat(), "end": b.isoformat(), "minutes": round((b - a).total_seconds() / 60)}
+                         for a, b in silences[:5]],
+            )
+        items.append(row)
+    items.sort(key=lambda r: (-r["total"], r["module"]))
+    return {
+        "granularity": gran,
+        "buckets": keys,
+        "total": sum(r["total"] for r in items),
+        "previous_total": sum(previous.values()),
+        "sources": items,
+        "silence_alerts": silence_alerts,
+        "data_start": data_start.isoformat(),
+        "method": [
+            "Source : base des événements (ClickHouse), événements reçus pendant la période par outil (module), "
+            "comparés à la période précédente de même durée.",
+            "Silence : aucun événement d'une source surveillée pendant plus que son délai toléré — le même délai que "
+            "la fiche de l'intégration et que l'alerte « source silencieuse » (règle d'absence). Les événements sont "
+            f"regroupés par tranches de {int(SILENCE_STEP.total_seconds() // 60)} minutes : un silence est mesuré à "
+            "5 minutes près. Le début et la fin de la période comptent (source muette depuis le début, ou encore "
+            "muette).",
+            "Disponibilité = 100 % − durée cumulée des silences ÷ durée de la période (jusqu'à maintenant). Une "
+            "source raccordée en cours de période apparaît silencieuse avant son raccordement.",
+            f"Conservation des journaux : {retention_days} jours (Paramètres › Conservation) ; avant le "
+            f"{data_start.astimezone(tz):%d/%m/%Y}, les événements ont été supprimés et ne sont pas comptés comme "
+            "un silence.",
+            f"Alertes « source silencieuse » créées sur la période : {silence_alerts}.",
+            "Les sources non surveillées (sans délai de silence) sont comptées, sans calcul de silence ; les "
+            "intégrations désactivées n'apparaissent que si elles ont envoyé des événements.",
+        ],
+    }
+
+
+# ---------- Carte jour × heure ----------
+
+
+def _grid() -> list[list[int]]:
+    return [[0] * 24 for _ in WEEKDAYS]
+
+
+def heatmap(alerts: list[Alert], auth_rows: list[dict], offhours_accounts: list[dict], business_days: set[int],
+            start: int, end: int, tz: ZoneInfo) -> dict:
+    """Répartition par jour de la semaine (1 = lundi) et heure (heure de Paris) : alertes créées, échecs et
+    connexions réussies ; part hors des heures ouvrées."""
+    grids = {"alerts": _grid(), "failures": _grid(), "successes": _grid()}
+    for a in alerts:
+        local = aware(a.created_at).astimezone(tz)
+        grids["alerts"][local.isoweekday() - 1][local.hour] += 1
+    for r in auth_rows:
+        day, hour = int(r["d"]) - 1, int(r["h"])
+        grids["failures"][day][hour] += int(r["failures"])
+        grids["successes"][day][hour] += int(r["successes"])
+
+    def business(day: int, hour: int) -> bool:
+        return day + 1 in business_days and start <= hour < end
+
+    summary = {}
+    for name, grid in grids.items():
+        total = sum(map(sum, grid))
+        off = sum(v for d, row in enumerate(grid) for h, v in enumerate(row) if not business(d, h))
+        peak = max(((v, d, h) for d, row in enumerate(grid) for h, v in enumerate(row)), default=(0, 0, 0))
+        summary[name] = {"total": total, "off_hours": off, "off_hours_pct": pct(off, total),
+                         "peak": {"day": WEEKDAYS[peak[1]], "hour": peak[2], "count": peak[0]} if peak[0] else None}
+    days = ", ".join(WEEKDAYS[d - 1] for d in sorted(business_days)) or "aucun"
+    return {
+        "grids": grids,
+        "summary": summary,
+        "business": {"days": sorted(business_days), "start": start, "end": end},
+        "offhours_accounts": offhours_accounts,
+        "method": [
+            "Chaque case = jour de la semaine × heure (heure de Paris). Alertes : date de création des alertes de la "
+            "période. Authentification : événements de la base des journaux (catégorie authentification), "
+            "échecs et réussites.",
+            f"Heures ouvrées : {days}, de {start} h à {end} h (Paramètres › Notifications, les mêmes que pour les "
+            "notifications). Les jours fériés ne sont pas connus du Mini-SOC : ils comptent comme ouvrés.",
+            "Connexions réussies : comptes nommés seulement — comptes machine (finissant par $), comptes système "
+            "(SYSTEM, ANONYMOUS LOGON, DWM-, UMFD-…) et connexions sans compte exclus. Les échecs sont tous comptés : "
+            "une attaque vise aussi des comptes inexistants.",
+            "Comptes connectés hors horaires : connexions réussies hors des heures ouvrées, par compte. Les comptes "
+            "de service et les astreintes y figurent normalement ; c'est un compte inattendu qui doit interroger.",
+        ],
+    }
+
+
+# ---------- Corrélation et réponse ----------
+
+
+def correlation(alerts: list[Alert], incidents: list[Incident], blocks: list[Block], isolations: list[dict],
+                since: datetime, until: datetime, top: int = 10) -> dict:
+    kept = [a for a in alerts if a.status != "false_positive"]
+    base = [a for a in kept if a.rule_id not in DERIVED_RULES]
+    multi = [a for a in base if len(set(a.modules or []) - NOT_TOOLS) >= 2]
+    host_tools = {h: t for h, t in tools_by_host(base).items() if len(t) >= 2}
+    host_alerts: Counter = Counter()
+    for a in base:
+        for h in alert_hosts(a) & set(host_tools):
+            host_alerts[h] += 1
+    corroborated = sorted(host_tools, key=lambda h: (-len(host_tools[h]), -host_alerts[h], h))
+
+    derived = []
+    for rule_id, label in ((CHAIN_RULE, "Chaînes d'attaque"), (SHARED_IP_RULE, "IP partagées entre outils"),
+                           (RISK_RULE, "Scores de risque élevés")):
+        items = [(a, None) for a in alerts if a.rule_id == rule_id]
+        derived.append({"rule_id": rule_id, "label": label, **_quality_row(items)})
+
+    recent = []
+    for a in sorted((a for a in alerts if a.rule_id in (CHAIN_RULE, SHARED_IP_RULE)),
+                    key=lambda a: aware(a.created_at), reverse=True)[:top]:
+        details = a.details or {}
+        if a.rule_id == CHAIN_RULE:
+            chain = details.get("chain") or {}
+            why = f"{len(chain.get('tactics') or [])} tactiques, {len(chain.get('steps') or [])} étapes"
+        else:
+            shared = details.get("shared_ip") or {}
+            why = ", ".join(DETECTION_TOOLS.get(t, t) for t in shared.get("tools") or [])
+        recent.append({"id": a.id, "rule_id": a.rule_id, "title": a.title, "severity": severity_name(a.severity),
+                       "status": a.status, "created_at": aware(a.created_at).isoformat(), "why": why})
+
+    opened = [i for i in incidents if since <= aware(i.created_at) < until]
+    period_blocks = [b for b in blocks if since <= aware(b.created_at) < until]
+    status = Counter(b.status for b in period_blocks)
+    isolate = [i for i in isolations if i["action"] == "endpoint_isolate"]
+    return {
+        "multi_tool_alerts": len(multi),
+        "considered": len(base),
+        "corroborated_hosts": [{"host": h, "tools": sorted(host_tools[h]), "alerts": host_alerts[h]}
+                               for h in corroborated[:top]],
+        "corroborated_total": len(host_tools),
+        "derived": derived,
+        "recent": recent,
+        "incidents": {"opened": len(opened), "automatic": sum(1 for i in opened if i.created_by in SYSTEM_ACTORS)},
+        "blocks": {
+            "total": len(period_blocks),
+            "ips": len({b.ip for b in period_blocks}),
+            "active": status["active"],
+            "failed": status["failed"],
+            "removed_manual": sum(1 for b in period_blocks if b.status == "removed" and b.removed_by != "expiration"),
+            "expired": sum(1 for b in period_blocks if b.status == "removed" and b.removed_by == "expiration"),
+            "from_alert": sum(1 for b in period_blocks if b.alert_id),
+        },
+        "isolations": {
+            "requested": len(isolate),
+            "failed": sum(1 for i in isolate if not i["ok"]),
+            "released": sum(1 for i in isolations if i["action"] == "endpoint_release"),
+            "hosts": sorted({i["host"] for i in isolate if i["host"]}),
+        },
+        "method": [
+            "Alertes créées pendant la période, hors faux positifs. Alertes multi-outils : alertes qui portent "
+            "au moins deux outils (modules) différents, hors alertes calculées.",
+            "Machines corroborées : machines signalées par au moins deux outils de détection différents (alertes de "
+            "menace seulement) — le même calcul que les points de corroboration de la priorité et du score de risque.",
+            "Alertes calculées : chaînes d'attaque UC-44 (au moins 3 tactiques MITRE distinctes sur 24 h, une "
+            "détection ne comptant que pour une tactique), IP partagées UC-61 (une IP publique vue par au moins deux "
+            "outils en 24 h), scores de risque UC-43. Le détail du calcul figure sur la fiche de chaque alerte. Taux "
+            "de faux positifs calculé comme dans « Qualité des détections ».",
+            "Incidents automatiques : créés par le Mini-SOC à partir d'une chaîne d'attaque (réglage « incident "
+            "automatique »).",
+            "Blocages : IP bloquées sur le pare-feu depuis le Mini-SOC pendant la période (page Blocages) ; levés à "
+            "expiration ou par une personne ; échecs = refus ou erreur du pare-feu.",
+            "Isolements : demandes d'isolement de poste à l'EDR depuis une alerte, d'après le journal d'audit.",
         ],
     }

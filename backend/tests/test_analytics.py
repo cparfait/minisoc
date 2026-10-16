@@ -1,10 +1,11 @@
-"""Page Statistiques : volumes, qualité des détections, délais, MITRE et cibles (calculs purs)."""
+"""Page Statistiques : volumes, qualité des détections, délais, MITRE et cibles, santé des sources, carte jour × heure,
+corrélation et réponse (calculs purs)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from minisoc import analytics
-from minisoc.models import Alert, AlertHistory, Incident, IncidentEntry
+from minisoc.models import Alert, AlertHistory, Block, Incident, IncidentEntry
 
 TZ = ZoneInfo("Europe/Paris")
 SINCE = datetime(2026, 10, 1, tzinfo=TZ)  # minuit heure de Paris, comme les bornes envoyées par la page
@@ -12,10 +13,11 @@ UNTIL = datetime(2026, 10, 8, tzinfo=TZ)
 NOW = UNTIL
 
 
-def alert(alert_id, rule_id="UC-01", severity=2, created=SINCE + timedelta(hours=10), status="new", modules=("windows",),
-          entity="host.name=PC-1", count=1, details=None, acknowledged=None):
-    return Alert(id=alert_id, rule_id=rule_id, rule_name=f"Règle {rule_id}", severity=severity, title=f"Alerte {alert_id}",
-                 entity_key=entity, status=status, modules=list(modules), count=count, details=details or {},
+def alert(alert_id, rule_id="UC-01", severity=2, created=SINCE + timedelta(hours=10), status="new",
+          modules=("windows",), entity="host.name=PC-1", count=1, details=None, acknowledged=None):
+    return Alert(id=alert_id, rule_id=rule_id, rule_name=f"Règle {rule_id}", severity=severity,
+                 title=f"Alerte {alert_id}", entity_key=entity, status=status, modules=list(modules), count=count,
+                 details=details or {},
                  created_at=created, first_seen=created, last_seen=created, acknowledged_at=acknowledged)
 
 
@@ -68,7 +70,8 @@ def test_quality_false_positive_rate_and_closer():
 def test_closing_entry_is_the_last_one_matching_current_status():
     a = alert(1, status="resolved")
     history = [closed(1, "système", "resolved", SINCE + timedelta(hours=11)),
-               AlertHistory(alert_id=1, actor="j.martin", action="status", detail="new", ts=SINCE + timedelta(hours=12)),
+               AlertHistory(alert_id=1, actor="j.martin", action="status", detail="new",
+                            ts=SINCE + timedelta(hours=12)),
                closed(1, "j.martin", "resolved", SINCE + timedelta(hours=14))]
     found = analytics.closing_entries([a], history)
     assert found[1].actor == "j.martin"
@@ -133,3 +136,86 @@ def test_mitre_ranks_public_ips_only():
     m = analytics.mitre_targets(alerts, {})
     assert [(i["ip"], i["alerts"], i["tools"]) for i in m["ips"]] == [("185.220.101.4", 2, ["m365", "sophos_xgs"])]
     assert m["unmapped"] == 3
+
+
+def utc(value):
+    """Date telle que la renvoie ClickHouse : UTC, sans fuseau."""
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def test_source_health_silences_and_availability():
+    expected = {m: timedelta(minutes=30) for m in ("sophos_xgs", "windows", "bitdefender")}
+    volume = [{"module": "sophos_xgs", "b": date(2026, 10, 1), "n": 100},
+              {"module": "dns", "b": date(2026, 10, 2), "n": 5}]
+    seen = [{"module": "sophos_xgs", "first": utc(SINCE + timedelta(minutes=10)),
+             "last": utc(UNTIL - timedelta(minutes=10))},
+            {"module": "windows", "first": utc(SINCE + timedelta(hours=3)), "last": utc(UNTIL - timedelta(hours=1))},
+            {"module": "dns", "first": utc(SINCE + timedelta(days=1)), "last": utc(SINCE + timedelta(days=1))}]
+    # Silences de 175, 35 et 25 minutes (tranche de 5 minutes comprise)
+    gaps = [{"module": "sophos_xgs", "gap_start": utc(SINCE + timedelta(hours=a)),
+             "gap_end": utc(SINCE + timedelta(hours=b))} for a, b in ((2, 5), (6, 6 + 40 / 60), (7, 7.5))]
+    h = analytics.source_health(volume, [{"module": "sophos_xgs", "n": 50}], gaps, seen, expected, SINCE, UNTIL, NOW,
+                                TZ, 365, silence_alerts=2)
+    rows = {r["module"]: r for r in h["sources"]}
+    assert rows["sophos_xgs"]["series"][0] == 100 and rows["sophos_xgs"]["delta_pct"] == 100
+    assert rows["sophos_xgs"]["silences"] == 2 and rows["sophos_xgs"]["silent_minutes"] == 210  # 25 min < délai
+    assert rows["sophos_xgs"]["availability"] == 97.9 and rows["sophos_xgs"]["longest"][0]["minutes"] == 175
+    assert rows["windows"]["silent_minutes"] == 240  # 3 h avant le premier événement, 1 h après le dernier
+    assert rows["bitdefender"]["silences"] == 1 and rows["bitdefender"]["availability"] == 0.0  # jamais reçue
+    assert not rows["dns"]["monitored"] and "silences" not in rows["dns"]
+    assert any("source silencieuse" in line and ": 2." in line for line in h["method"])
+
+
+def test_source_health_ignores_purged_events():
+    h = analytics.source_health([], [], [], [], {"bitdefender": timedelta(minutes=30)}, SINCE, UNTIL, NOW, TZ, 3, 0)
+    assert h["sources"][0]["silent_minutes"] == 3 * 24 * 60  # 3 jours conservés, pas 7
+
+
+def test_heatmap_counts_off_hours():
+    alerts = [alert(1, created=datetime(2026, 10, 5, 10, tzinfo=TZ)),  # lundi 10 h
+              alert(2, created=datetime(2026, 10, 3, 3, tzinfo=TZ))]  # samedi 3 h
+    auth = [{"d": 1, "h": 9, "failures": 4, "successes": 10}, {"d": 7, "h": 23, "failures": 6, "successes": 1}]
+    m = analytics.heatmap(alerts, auth, [], {1, 2, 3, 4, 5}, 8, 18, TZ)
+    assert m["grids"]["alerts"][0][10] == 1 and m["grids"]["alerts"][5][3] == 1
+    assert m["summary"]["alerts"]["off_hours_pct"] == 50
+    assert m["summary"]["failures"] == {"total": 10, "off_hours": 6, "off_hours_pct": 60,
+                                        "peak": {"day": "dimanche", "hour": 23, "count": 6}}
+    assert m["summary"]["successes"]["off_hours"] == 1
+    assert any("lundi, mardi, mercredi, jeudi, vendredi, de 8 h à 18 h" in line for line in m["method"])
+
+
+def test_correlation_and_response():
+    at = SINCE + timedelta(days=1)
+    alerts = [
+        alert(1, modules=("harfanglab",), entity="host.name=PC-1"),
+        alert(2, modules=("bitdefender",), entity="host.name=pc-1.mairie.local"),
+        alert(3, modules=("harfanglab",), entity="host.name=PC-2", status="false_positive"),
+        alert(4, modules=("bitdefender",), entity="host.name=PC-2"),
+        alert(5, modules=("sophos_xgs", "m365"), entity="source.ip=185.220.101.4"),
+        alert(6, rule_id="UC-44", status="resolved", created=at, details={"chain": {"tactics": ["TA0001", "TA0002",
+              "TA0006"], "steps": [{}, {}, {}, {}]}}),
+        alert(7, rule_id="UC-61", created=at + timedelta(hours=1), modules=("sophos_xgs", "m365"),
+              details={"shared_ip": {"tools": ["m365", "sophos_xgs"]}}),
+    ]
+    incidents = [Incident(id=1, created_by="système", created_at=at),
+                 Incident(id=2, created_by="j.martin", created_at=at),
+                 Incident(id=3, created_by="système", created_at=SINCE - timedelta(days=1))]
+    blocks = [Block(ip="185.220.101.4", status="active", alert_id=5, created_at=at),
+              Block(ip="185.220.101.4", status="removed", removed_by="expiration", created_at=at),
+              Block(ip="45.155.205.33", status="removed", removed_by="j.martin", created_at=at),
+              Block(ip="45.155.205.34", status="failed", created_at=at),
+              Block(ip="45.155.205.35", status="active", created_at=SINCE - timedelta(days=2))]
+    isolations = [{"action": "endpoint_isolate", "ok": True, "host": "PC-1"},
+                  {"action": "endpoint_isolate", "ok": False, "host": "PC-2"},
+                  {"action": "endpoint_release", "ok": True, "host": "PC-1"}]
+    c = analytics.correlation(alerts, incidents, blocks, isolations, SINCE, UNTIL)
+    assert c["multi_tool_alerts"] == 1  # l'alerte 5 ; l'UC-61, calculée, est à part
+    assert c["corroborated_hosts"] == [{"host": "pc-1", "tools": ["bitdefender", "harfanglab"], "alerts": 2}]
+    derived = {d["rule_id"]: d for d in c["derived"]}
+    assert derived["UC-44"]["resolved"] == 1 and derived["UC-61"]["open"] == 1 and derived["UC-43"]["total"] == 0
+    assert [(r["id"], r["why"]) for r in c["recent"]] == [(7, "Microsoft 365, pare-feu Sophos"),
+                                                         (6, "3 tactiques, 4 étapes")]
+    assert c["incidents"] == {"opened": 2, "automatic": 1}
+    assert c["blocks"] == {"total": 4, "ips": 3, "active": 1, "failed": 1, "removed_manual": 1, "expired": 1,
+                           "from_alert": 1}
+    assert c["isolations"] == {"requested": 2, "failed": 1, "released": 1, "hosts": ["PC-1", "PC-2"]}
