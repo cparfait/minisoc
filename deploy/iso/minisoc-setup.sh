@@ -338,7 +338,7 @@ s_inbound() {
   while :; do
     c=$(wt --title "Accès entrants" --cancel-label "Retour" --menu \
       "Adresses autorisées à joindre la VM, chacune avec sa description.\nEntrée : ouvrir une liste   Échap : revenir au menu" 14 78 6 \
-      "1" "Administration   $(count ADMINS) adr.  SSH + interface web (postes DSI)" \
+      "1" "Administration   $(count ADMINS) adr.  SSH, web, ping (postes DSI)" \
       "2" "Écran mural      $(count WALL) adr.  interface web seule" \
       "3" "Syslog 514/TCP   $(count SYSLOG_TCP) adr.  pare-feu, Vectra, Varonis sur site" \
       "4" "Syslog 6514/TLS  $(count SYSLOG_TLS) adr.  NXLog (DC, serveurs de fichiers)" \
@@ -346,7 +346,7 @@ s_inbound() {
       "6" "Serveurs Trivy   $(count TRIVY) adr.  envoi des rapports seul (443)") || return 0
     case $c in
       1) edit_list ADMINS "Accès entrants > administration" \
-           "Postes DSI autorisés à administrer (SSH + interface web).\n2 ou 3 postes, avec réservation DHCP." addrs 1 ;;
+           "Postes DSI autorisés à administrer (SSH, interface web, ping).\nLes autres adresses n'ont aucune réponse, pas même au ping.\n2 ou 3 postes, avec réservation DHCP." addrs 1 ;;
       2) edit_list WALL "Accès entrants > écran mural" "Écran mural (interface web seule)." addrs ;;
       3) edit_list SYSLOG_TCP "Accès entrants > syslog 514/TCP" \
            "Sources syslog en clair, 514/TCP : pare-feu (Sophos XGS ou autre), Vectra, Varonis sur site." addrs ;;

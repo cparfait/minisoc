@@ -26,9 +26,9 @@ table inet minisoc_host {
   chain input {
     type filter hook input priority filter; policy drop;
     iif lo accept
-    ct state established,related accept
+    ct state established,related accept   # dont les erreurs ICMP liées à une connexion de la VM (MTU…)
     ct state invalid drop
-    icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 10/second accept
+    ip saddr @admins icmp type echo-request limit rate 10/second accept   # ping : postes ADMINS seulement
     ip saddr @admins tcp dport ${SSH_PORT:-22} ct state new accept
     ${BACKUP_SERVER:+ip saddr $BACKUP_SERVER tcp dport ${SSH_PORT:-22} ct state new accept}
     limit rate 6/minute log prefix "minisoc-hote-refus-entree " level info

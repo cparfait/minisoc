@@ -420,7 +420,7 @@ Les deux sont générés par un seul script, à partir d'un seul fichier d'adres
 LAN_IF="ens192"                         # interface réseau de la VM (VMXNET3 sous vSphere ; commande : ip -br link)
 
 # --- Entrant ---
-ADMINS="192.168.10.21 192.168.10.22"    # postes DSI : SSH et interface web
+ADMINS="192.168.10.21 192.168.10.22"    # postes DSI : SSH, interface web et ping
 WALL="192.168.10.40"                    # écran mural : interface web
 TRIVY="192.168.10.70"                   # serveurs équipés de l'agent Trivy : 443, envoi des rapports seul (§ 6.5)
 SYSLOG_TCP="192.168.10.1"               # syslog 514/TCP en clair : XGS, Vectra (Varonis seulement s'il est installé sur site)
@@ -445,11 +445,19 @@ sudo nano /etc/minisoc/firewall.conf
 ### 6.2 Script
 
 Le script est dans le dépôt : [`deploy/firewall/minisoc-firewall`](../deploy/firewall/minisoc-firewall). Il crée
-la table nftables `inet minisoc_host` (la machine : SSH depuis `ADMINS` et `BACKUP_SERVER`, sorties DNS, NTP et
-Internet 80/443) et remplit la chaîne `DOCKER-USER` (les conteneurs : 443 depuis `ADMINS`, `WALL` et `TRIVY`, 80
+la table nftables `inet minisoc_host` (la machine : SSH depuis `ADMINS` et `BACKUP_SERVER`, ping depuis `ADMINS`
+seulement, sorties DNS, NTP et Internet 80/443) et remplit la chaîne `DOCKER-USER` (les conteneurs : 443 depuis `ADMINS`, `WALL` et `TRIVY`, 80
 depuis `ADMINS`, syslog depuis les sources déclarées ; vers le LAN seulement `DNS` et `LAN_OUT`, vers Internet
 seulement `INTERNET_PORTS`). Tout refus est journalisé (`minisoc-hote-refus-*`, `minisoc-docker-refus-*`). Il refuse
 de s'appliquer si `LAN_IF`, `ADMINS`, `DNS` ou `NTP` est vide, ce qui fermerait l'accès.
+
+**ICMP au strict nécessaire.** Une adresse absente des listes n'obtient aucune réponse, pas même au ping : un
+poste compromis qui balaie le LAN ne découvre pas la VM. Le ping n'est accepté que depuis `ADMINS` (diagnostic par
+la DSI), limité à 10 par seconde. Les autres messages ICMP entrants ne passent que s'ils concernent une connexion
+ouverte par la VM (`ct state related` : hôte injoignable, fragmentation nécessaire pour la découverte de MTU) ;
+un message ICMP spontané est refusé et journalisé (`minisoc-hote-refus-entree`). Pour vérifier qu'un équipement
+joint la VM, tester le port qui lui est ouvert (`Test-NetConnection <IP> -Port 514` depuis un serveur Windows
+déclaré dans `SYSLOG_TCP`), pas le ping.
 
 Le pare-feu ne voit que des adresses et des ports, pas les pages demandées (le trafic web est chiffré) : le tri par
 chemin des serveurs `TRIVY` est fait par l'interface web (§ 6.5).
@@ -846,6 +854,8 @@ Sur la VM :
 - [ ] `sudo iptables -L DOCKER-USER -nv` : les compteurs des règles autorisées augmentent avec le syslog
 - [ ] `sudo journalctl -k | grep minisoc-` : pas de refus inattendu (sinon, compléter `firewall.conf`)
 - [ ] Syslog : une source non déclarée est refusée (ligne `minisoc-docker-refus-entree` dans le journal)
+- [ ] Ping : un poste `ADMINS` obtient une réponse ; un autre poste n'en obtient aucune (ligne
+      `minisoc-hote-refus-entree` dans le journal)
 - [ ] Sorties : sur le XGS, aucune connexion refusée vers une destination légitime pendant 24 h
 - [ ] Sauvegarde : une archive `.gpg` est présente le lendemain et a bien été récupérée par le serveur de
       sauvegarde

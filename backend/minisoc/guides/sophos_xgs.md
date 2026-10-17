@@ -42,8 +42,10 @@ l'accès à l'administration (UC-10), de l'IPS et des vulnérabilités exploité
 3. Mini-SOC › **Intégrations** : la fiche passe à « En service ».
 
 ## Dépannage
-- **Rien n'arrive** : depuis le pare-feu, *Diagnostics › Outils › Ping* vers {{MINISOC_HOST}} ; vérifier qu'aucun
-  pare-feu intermédiaire ne bloque le 514/TCP ; `docker compose logs vector` sur le Mini-SOC.
+- **Rien n'arrive** : le Mini-SOC ne répond pas au ping du pare-feu (seuls les postes DSI peuvent le pinger), ce
+  test ne prouve donc rien. Vérifier que l'adresse d'émission du XGS figure dans les sources syslog 514/TCP de
+  `sudo minisoc-setup` (sinon `journalctl -k | grep minisoc-docker-refus-entree` sur le Mini-SOC montre les refus),
+  qu'aucun pare-feu intermédiaire ne bloque le 514/TCP, puis `docker compose logs vector` sur le Mini-SOC.
 - **Événements « Syslog générique » au lieu de « Sophos XGS »** : format autre que « Standard syslog protocol » ou
   « Device standard format » (par exemple CEF).
 - **Trop de volume** : décocher les journaux de trafic du pare-feu.
