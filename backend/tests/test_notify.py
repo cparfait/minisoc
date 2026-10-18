@@ -103,3 +103,18 @@ async def test_digest_content():
     assert "2 critique(s), 5 haute(s)" in digest.subject and "silencieuse" in digest.subject
     assert "sophos_xgs SILENCIEUSE" in digest.text and "203.0.113.12" in digest.text
     assert "Point de sécurité du 03/10/2026" in digest.html
+
+
+async def test_email_subject_survives_injected_newline(monkeypatch):
+    from minisoc.notify import email as email_mod
+
+    sent = []
+
+    async def fake_send(message, **kw):
+        sent.append(message)
+
+    monkeypatch.setattr(email_mod.aiosmtplib, "send", fake_send)
+    cfg = {"smtp_host": "smtp.local", "smtp_from": "soc@ville.fr", "smtp_to": ["rssi@ville.fr"]}
+    await email_mod.send_email(cfg, "[Mini-SOC] Alerte\r\nBcc: x@evil.test fin", "corps")
+    assert sent[0]["Subject"] == "[Mini-SOC] Alerte Bcc: x@evil.test fin"
+    assert sent[0]["Bcc"] is None

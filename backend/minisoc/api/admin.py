@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -12,6 +13,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from minisoc import audit
+from minisoc.api.auth import MFA_ENROLL_WINDOW, enroll_window_open
 from minisoc.api.deps import ADMIN, client_ip, get_db
 from minisoc.db import sessionmaker
 from minisoc.ldap_auth import test_connection
@@ -102,6 +104,8 @@ def _user(u: User, sessions: int) -> dict:
         "role": u.role,
         "active": u.active,
         "mfa_enrolled": bool(u.totp_secret_enc),
+        "mfa_enroll_until": (u.mfa_enroll_until.isoformat()
+                             if not u.totp_secret_enc and enroll_window_open(u, datetime.now(timezone.utc)) else None),
         "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
         "active_sessions": sessions,
     }
@@ -155,12 +159,36 @@ async def reset_mfa(user_id: int, request: Request, db: AsyncSession = Depends(g
         raise HTTPException(404, "Utilisateur introuvable")
     target.totp_secret_enc = ""  # nouvel enrôlement par QR code à la prochaine connexion
     target.totp_last_step = 0
+    target.mfa_enroll_until = datetime.now(timezone.utc) + MFA_ENROLL_WINDOW
     await db.execute(delete(Session).where(Session.user_id == target.id))
     await db.execute(delete(AuthChallenge).where(AuthChallenge.user_id == target.id))
     await audit.record(db, actor=admin.username, ip=client_ip(request), action="mfa_reset",
                        obj=f"user:{target.username}")
     await db.commit()
     return {"ok": True}
+
+
+class EnrollmentWindow(BaseModel):
+    allow: bool
+
+
+@router.post("/users/{user_id}/mfa-enrollment")
+async def set_mfa_enrollment(user_id: int, body: EnrollmentWindow, request: Request,
+                             db: AsyncSession = Depends(get_db), admin: User = Depends(ADMIN)):
+    """Ouvre (24 h) ou referme la fenêtre d'enrôlement MFA d'un compte qui n'a pas encore de second facteur."""
+    target = await db.get(User, user_id, with_for_update=True)
+    if not target:
+        raise HTTPException(404, "Utilisateur introuvable")
+    if target.totp_secret_enc:
+        raise HTTPException(422, "Double authentification déjà active : utilisez « Réinitialiser le MFA »")
+    target.mfa_enroll_until = datetime.now(timezone.utc) + MFA_ENROLL_WINDOW if body.allow else None
+    if not body.allow:
+        await db.execute(delete(AuthChallenge).where(AuthChallenge.user_id == target.id))
+    await audit.record(db, actor=admin.username, ip=client_ip(request),
+                       action="mfa_enroll_allowed" if body.allow else "mfa_enroll_revoked",
+                       obj=f"user:{target.username}", detail={"until": target.mfa_enroll_until.isoformat()} if body.allow else None)
+    await db.commit()
+    return {"ok": True, "mfa_enroll_until": target.mfa_enroll_until.isoformat() if body.allow else None}
 
 
 # --- Notifications : test des canaux et envoi du résumé à la demande ---------------------------------

@@ -15,6 +15,7 @@ interface AdminUser {
   role: "admin" | "analyst" | "viewer";
   active: boolean;
   mfa_enrolled: boolean;
+  mfa_enroll_until: string | null;
   last_login_at: string | null;
   active_sessions: number;
 }
@@ -41,7 +42,8 @@ export default function Users() {
       <PageHeader title="Utilisateurs" icon={UsersIcon} subtitle="Comptes, rôles et double authentification" />
       <p className="muted">
         Les comptes AD sont créés à leur première connexion ; leur rôle suit leurs groupes AD. Les comptes locaux (secours)
-        se créent avec <code>python -m minisoc.cli create-user</code>.
+        se créent avec <code>python -m minisoc.cli create-user</code>. Pour configurer sa double authentification, un
+        compte doit y être autorisé ici : l'autorisation vaut 24 h et sert une seule fois.
       </p>
       <ErrorBanner error={error ?? actionError} />
       <table>
@@ -78,17 +80,36 @@ export default function Users() {
                   ROLE_LABEL[u.role]
                 )}
               </td>
-              <td>{u.mfa_enrolled ? <span className="text-good">activée</span> : <span className="muted">à enrôler</span>}</td>
+              <td>
+                {u.mfa_enrolled ? (
+                  <span className="text-good">activée</span>
+                ) : u.mfa_enroll_until ? (
+                  <>
+                    <span className="text-warn">enrôlement autorisé</span>
+                    <div className="muted small">jusqu'au {formatDate(u.mfa_enroll_until)}</div>
+                  </>
+                ) : (
+                  <span className="muted">à enrôler</span>
+                )}
+              </td>
               <td>{formatDate(u.last_login_at)}</td>
               <td className="num">{u.active_sessions}</td>
               <td className="nowrap">
+                {!u.mfa_enrolled && u.active && (
+                  <>
+                    <button className="link" onClick={() => act(() => api(`/admin/users/${u.id}/mfa-enrollment`, { method: "POST", body: { allow: !u.mfa_enroll_until } }))}>
+                      {u.mfa_enroll_until ? "Retirer l'autorisation" : "Autoriser l'enrôlement (24 h)"}
+                    </button>
+                    {u.username !== me?.username && " · "}
+                  </>
+                )}
                 {u.username !== me?.username && (
                   <>
                     <button className="link" onClick={() => act(() => api(`/admin/users/${u.id}`, { method: "PATCH", body: { active: !u.active } }))}>
                       {u.active ? "Désactiver" : "Réactiver"}
                     </button>{" "}
                     ·{" "}
-                    <button className="link" onClick={() => window.confirm(`Réinitialiser la double authentification de ${u.username} ? Ses sessions seront fermées et il devra scanner un nouveau QR code.`) &&
+                    <button className="link" onClick={() => window.confirm(`Réinitialiser la double authentification de ${u.username} ? Ses sessions seront fermées et il aura 24 h pour scanner un nouveau QR code.`) &&
                       act(() => api(`/admin/users/${u.id}/reset-mfa`, { method: "POST" }))}>
                       Réinitialiser le MFA
                     </button>

@@ -29,7 +29,7 @@ services:
     # minisoc-update y migre les données (export de l'ancienne version, import dans la nouvelle) ; l'ancien volume
     # reste intact pour un retour arrière
     # Le numéro de version majeure du nom de l'image sert aussi à minisoc-update (migration ci-dessus)
-    build: { <<: *patched, args: { BASE: "postgres:18-alpine" } }
+    build: { <<: *patched, args: { BASE: "postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873" } }
     image: minisoc-postgres:18
     restart: unless-stopped
     environment:
@@ -44,7 +44,7 @@ services:
     networks: [data]
 
   redis:
-    build: { <<: *patched, args: { BASE: "redis:8-alpine" } }
+    build: { <<: *patched, args: { BASE: "redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0" } }
     image: minisoc-redis:8
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "300", "1"]
@@ -58,7 +58,7 @@ services:
   clickhouse:
     # Variante Alpine : même serveur et même compte (uid 101) que l'image Ubuntu, sans ses dizaines de paquets
     # vulnérables sans correctif (busybox, glibc, pcre2…)
-    build: { <<: *patched, args: { BASE: "clickhouse/clickhouse-server:26.9-alpine" } }
+    build: { <<: *patched, args: { BASE: "clickhouse/clickhouse-server:26.9-alpine@sha256:ebfa2210dce4d75af8f73ef02588d1a8fc67a44dcdd573a6c8055597177c1ca1" } }
     image: minisoc-clickhouse:26.9
     restart: unless-stopped
     environment:
@@ -95,7 +95,7 @@ services:
 
   # Réception syslog des équipements (Sophos, Vectra, Varonis…) avec tampon disque, relayée à l'API
   vector:
-    build: &vector-build { <<: *patched, args: { BASE: "timberio/vector:0.59.0-alpine" } }
+    build: &vector-build { <<: *patched, args: { BASE: "timberio/vector:0.59.0-alpine@sha256:0e36bc2a290039e9b6a5e92f04bd2f133223506f72d09682c1df16c015172b7a" } }
     image: &vector-image minisoc-vector:0.59.0
     restart: unless-stopped
     # Recharge la configuration quand vector.yaml change (sinon : docker compose up -d --force-recreate vector)
@@ -148,7 +148,7 @@ services:
   # Trivy : jamais lancé par Compose, mais par le service minisoc-trivy de la VM (deploy/trivy), chaque semaine ou à
   # la demande ; image corrigée et reconstruite à chaque mise à jour comme les autres (profil « outils »)
   trivy:
-    build: { <<: *patched, args: { BASE: "aquasec/trivy:0.76.0" } }
+    build: { <<: *patched, args: { BASE: "aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222" } }
     image: minisoc-trivy:0.76.0
     profiles: ["outils"]
 

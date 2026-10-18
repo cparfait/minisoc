@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 import ssl
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
@@ -28,6 +29,17 @@ def _tls_context(cfg: dict) -> ssl.SSLContext:
     return context
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def header_safe(value: str, limit: int = 250) -> str:
+    """Valeur d'en-tête sur une ligne : un saut de ligne venu d'un log ferait refuser tout le message.
+
+    split() sans argument coupe aussi sur les séparateurs Unicode (U+0085, U+2028, U+2029).
+    """
+    return " ".join(_CONTROL_CHARS.sub(" ", value).split())[:limit]
+
+
 async def send_email(cfg: dict, subject: str, text: str, html: str | None = None,
                      to: list[str] | None = None) -> None:
     recipients = to or cfg.get("smtp_to") or []
@@ -36,7 +48,7 @@ async def send_email(cfg: dict, subject: str, text: str, html: str | None = None
     message = EmailMessage()
     message["From"] = cfg["smtp_from"]
     message["To"] = ", ".join(recipients)
-    message["Subject"] = subject
+    message["Subject"] = header_safe(subject)
     message["Date"] = formatdate(localtime=True)
     message["Message-ID"] = make_msgid(domain=str(cfg["smtp_from"]).split("@")[-1] or "minisoc")
     message.set_content(text)

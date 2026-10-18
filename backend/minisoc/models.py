@@ -29,6 +29,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), default="")  # vide pour un compte AD
     totp_secret_enc: Mapped[str] = mapped_column(String(255), default="")  # vide = MFA à enrôler
     totp_last_step: Mapped[int] = mapped_column(BigInteger, default=0)  # anti-rejeu d'un code TOTP
+    # Enrôlement MFA possible jusqu'à cette date, ouverte par un admin : le mot de passe seul ne suffit pas
+    mfa_enroll_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     role: Mapped[str] = mapped_column(String(16), default="analyst")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)

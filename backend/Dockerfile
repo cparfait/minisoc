@@ -1,7 +1,9 @@
 # Python 3.14 (dernier correctif à chaque reconstruction) : au 16/10/2026, Python 3.15 est bloqué par
 # clickhouse-connect (requires_python <3.15) ; pyyaml, lz4 et zstandard n'ont pas encore de roue cp315 et l'image
 # n'a pas de compilateur. Revérifier à chaque paquet de mise à jour.
-FROM python:3.14-slim AS base
+# Image figée par son empreinte et dépendances par requirements.lock (versions et empreintes) : la VM reconstruit
+# exactement ce qui a été testé. Mise à jour des deux : scripts/update_pins.sh
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -17,14 +19,19 @@ RUN mkdir -p /var/lib/minisoc/archives && chown -R minisoc:minisoc /var/lib/mini
 RUN mkdir -p /app/data/geoip && chown minisoc:minisoc /app/data/geoip
 # Rapports Trivy de la VM : dossier de l'hôte monté ici (propriété du compte minisoc, voir deploy/trivy)
 RUN mkdir -p /var/lib/minisoc/trivy && chown minisoc:minisoc /var/lib/minisoc/trivy
+# --require-hashes : refuse tout paquet absent du verrou ou dont l'empreinte diffère (dépendance transitive comprise)
+COPY requirements.lock ./
+RUN pip install --require-hashes -r requirements.lock
+# Le code s'exécute depuis /app (pas de pip install . : il téléchargerait setuptools hors verrou)
+ENV PYTHONPATH=/app
 COPY pyproject.toml ./
 COPY minisoc ./minisoc
-RUN pip install .
 COPY rules ./rules
 
 # Tests : docker build --target test backend && docker run --rm <image>
 FROM base AS test
-RUN pip install ".[dev]"
+COPY requirements-dev.lock ./
+RUN pip install --require-hashes -r requirements-dev.lock
 COPY tests ./tests
 USER minisoc
 CMD ["pytest", "-q", "-p", "no:cacheprovider"]

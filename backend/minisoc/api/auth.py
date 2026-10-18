@@ -10,6 +10,8 @@ Garde-fous :
     compte d'un collègue dans le Mini-SOC, ni faire verrouiller son compte AD à travers lui ;
   - étape intermédiaire conservée côté serveur (expiration, 5 essais, liée à l'IP), jamais dans le cookie ;
   - code TOTP à usage unique (anti-rejeu), nouvelle session à chaque connexion (anti-fixation) ;
+  - enrôlement du second facteur seulement dans une fenêtre de 24 h ouverte par un admin : un mot de passe
+    volé ne suffit pas à enrôler son propre téléphone sur un compte qui n'a pas encore de MFA ;
   - message d'erreur générique, sauf motifs AD que l'annuaire ne renvoie qu'avec le bon mot de passe.
 """
 
@@ -59,7 +61,10 @@ MAX_FAILURES = 5
 LOCK_DURATION = timedelta(minutes=15)
 IP_WINDOW_SECONDS = 300
 IP_MAX_ATTEMPTS = 20
+MFA_ENROLL_WINDOW = timedelta(hours=24)
 GENERIC_ERROR = "Identifiant ou mot de passe invalide, ou accès temporairement verrouillé"
+ENROLL_NOT_ALLOWED = ("Double authentification à configurer : demandez à un administrateur du Mini-SOC "
+                      "d'autoriser votre enrôlement (valable 24 h)")
 _attempts_by_ip: dict[str, deque[float]] = defaultdict(deque)
 
 
@@ -84,6 +89,10 @@ def _rate_limited(ip: str) -> bool:
 def user_payload(user: User) -> dict:
     return {"username": user.username, "role": user.role, "display_name": user.display_name,
             "auth_source": user.auth_source}
+
+
+def enroll_window_open(user: User, now: datetime) -> bool:
+    return user.mfa_enroll_until is not None and user.mfa_enroll_until > now
 
 
 def _no_store(response: Response) -> None:
@@ -146,10 +155,17 @@ async def login(body: LoginRequest, request: Request, response: Response, db: As
         await _record_failure(db, username, ip, "user_disabled")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_ERROR)
 
+    enroll = not user.totp_secret_enc
+    if enroll and not enroll_window_open(user, now):
+        # Le compte AD provisionné reste visible dans Utilisateurs, où un admin peut ouvrir la fenêtre
+        await audit.record(db, actor=user.username, ip=ip, action="mfa_enroll_refused", obj="auth",
+                           detail={"source": user.auth_source})
+        await db.commit()
+        raise HTTPException(status.HTTP_403_FORBIDDEN, ENROLL_NOT_ALLOWED)
+
     # Mot de passe validé : on prépare l'étape du second facteur, conservée côté serveur
     await db.execute(delete(AuthChallenge).where(AuthChallenge.user_id == user.id))
     token, token_hash = new_session_token()
-    enroll = not user.totp_secret_enc
     secret = new_totp_secret() if enroll else ""
     db.add(AuthChallenge(id=token_hash, user_id=user.id, kind="enroll" if enroll else "totp",
                          pending_secret_enc=encrypt(secret) if enroll else "", ip=ip, expires_at=now + CHALLENGE_TTL))
@@ -225,6 +241,11 @@ async def verify(body: VerifyRequest, request: Request, response: Response, db: 
     if not user or not user.active:
         raise expired
 
+    if challenge.kind == "enroll" and (user.totp_secret_enc or not enroll_window_open(user, now)):
+        await db.delete(challenge)  # fenêtre refermée par un admin, ou expirée, depuis l'étape 1
+        await db.commit()
+        raise expired
+
     if challenge.kind == "enroll":
         secret = decrypt(challenge.pending_secret_enc)
         step = verify_totp(secret, body.code, 0)
@@ -244,6 +265,7 @@ async def verify(body: VerifyRequest, request: Request, response: Response, db: 
 
     if challenge.kind == "enroll":
         user.totp_secret_enc = encrypt(secret)
+        user.mfa_enroll_until = None  # fenêtre à usage unique
         await audit.record(db, actor=user.username, ip=ip, action="mfa_enrolled", obj="auth")
     user.totp_last_step = step
     user.last_login_at = now
