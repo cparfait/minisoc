@@ -125,6 +125,26 @@ else
     warn "disque de données non trouvé (${#candidates[@]} disque(s) vide(s)) : Docker est sur le disque système"
   fi
 fi
+# Depuis Docker 29, images, couches et cache de construction sont dans le magasin de containerd (/var/lib/containerd),
+# pas dans /var/lib/docker : montage lié sur le disque de données, sinon ils remplissent la partition système.
+# Configuration de containerd non modifiée (fichier du paquet : ses mises à jour restent automatiques).
+CONTAINERD_DATA=/var/lib/docker/minisoc-containerd
+if mountpoint -q /var/lib/containerd; then
+  echo "containerd : déjà sur le disque de données"
+elif ! mountpoint -q /var/lib/docker; then
+  warn "containerd (images Docker) sur le disque système : pas de disque de données"
+elif [ -n "$(ls -A /var/lib/containerd 2>/dev/null)" ]; then
+  warn "containerd a déjà des données sur le disque système : sudo minisoc-update les déplacera sur le disque de données"
+else
+  install -d -m 0711 /var/lib/containerd "$CONTAINERD_DATA"
+  grep -q ' /var/lib/containerd ' /etc/fstab \
+    || echo "$CONTAINERD_DATA /var/lib/containerd none bind,x-systemd.requires-mounts-for=/var/lib/docker 0 0" >> /etc/fstab
+  install -d /etc/systemd/system/containerd.service.d
+  printf '[Unit]\nRequiresMountsFor=/var/lib/containerd\n' > /etc/systemd/system/containerd.service.d/minisoc-disque.conf
+  systemctl daemon-reload
+  mount /var/lib/containerd
+  echo "containerd : /var/lib/containerd sur le disque de données ($CONTAINERD_DATA)"
+fi
 
 # ---------- Docker (§ 5), plage d'adresses choisie ----------
 step "Docker"

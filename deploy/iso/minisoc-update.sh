@@ -40,6 +40,92 @@ if [ "$YES" != "--oui" ]; then
   case "$answer" in o|O|oui|OUI) ;; *) echo "Abandon."; exit 0 ;; esac
 fi
 
+# ---------- Place disque (avant toute modification) ----------
+# Construction sans cache : chaque mise à jour laisse son cache de construction et les images remplacées. Le cache
+# ne sert jamais (--no-cache) et les images dont aucun conteneur ne dépend plus sont reconstruites : effacés.
+step "place disque"
+docker builder prune -af >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
+free_mib() { df -Pm "$1" | awk 'NR==2 {print $4}'; }
+
+# Magasin d'images de containerd (Docker 29 et plus) déplacé sur le disque de données, une seule fois : les VM
+# installées avant le premier démarrage qui le fait (firstboot.sh) l'ont sur la partition système (/, 30 Go).
+# Copie à chaud, puis arrêt des conteneurs et de Docker pour la copie finale (1 à 2 minutes), montage lié, redémarrage
+# des mêmes conteneurs. En cas d'échec, retour à l'ancien emplacement, resté intact jusqu'au bout.
+CONTAINERD_DATA=/var/lib/docker/minisoc-containerd
+CONTAINERD_DROPIN=/etc/systemd/system/containerd.service.d/minisoc-disque.conf
+containerd_bind_undo() {
+  umount /var/lib/containerd 2>/dev/null || true
+  sed -i '\| /var/lib/containerd none bind|d' /etc/fstab
+  rm -f "$CONTAINERD_DROPIN"
+  if [ -d /var/lib/containerd.ancien ]; then rmdir /var/lib/containerd && mv /var/lib/containerd.ancien /var/lib/containerd; fi
+  systemctl daemon-reload
+}
+containerd_start() {  # containerd_start <conteneurs arrêtés pour la copie> : Docker, puis ces conteneurs, en marche
+  systemctl start containerd docker.socket docker || return 1
+  [ -z "$1" ] || docker start $1 >/dev/null || return 1
+  local _ id up
+  for _ in $(seq 30); do
+    up=1
+    for id in $1; do [ "$(docker inspect -f '{{.State.Running}}' "$id" 2>/dev/null)" = true ] || up=0; done
+    [ "$up" = 1 ] && return 0
+    sleep 2
+  done
+  return 1
+}
+containerd_migrate() {
+  mountpoint -q /var/lib/containerd && return 0              # déjà fait
+  mountpoint -q /var/lib/docker && [ -d /var/lib/containerd ] || return 0   # pas de disque de données
+  local size running
+  size=$(du -sxm /var/lib/containerd | cut -f1)
+  if [ "$(free_mib /var/lib/docker)" -lt $((size + need_docker)) ]; then
+    echo "${Y}containerd non déplacé : place insuffisante sur le disque de données.${N}"; return 0
+  fi
+  step "containerd : images Docker déplacées sur le disque de données (une seule fois)"
+  install -d -m 0711 "$CONTAINERD_DATA"
+  echo "Copie à chaud ($size Mio)…"
+  rsync -aHAXx --numeric-ids --delete /var/lib/containerd/ "$CONTAINERD_DATA/" \
+    || { echo "${Y}Copie en échec : containerd reste sur la partition système.${N}"; return 0; }
+  echo "${Y}Arrêt des conteneurs et de Docker pour la copie finale : interface web et réception syslog coupées.${N}"
+  running=$(docker ps -q | tr '\n' ' ')
+  [ -z "$running" ] || docker stop -t 60 $running >/dev/null || true
+  systemctl stop docker.socket docker containerd || true
+  if pgrep -f containerd-shim >/dev/null \
+     || ! rsync -aHAXx --numeric-ids --delete /var/lib/containerd/ "$CONTAINERD_DATA/"; then
+    echo "${R}containerd non déplacé (processus encore actifs ou copie en échec) : redémarrage à l'ancien emplacement.${N}"
+    containerd_start "$running" || echo "${R}Conteneurs non redémarrés : sudo docker compose -f $APP/docker-compose.yml up -d${N}"
+    return 0
+  fi
+  if mv /var/lib/containerd /var/lib/containerd.ancien && install -d -m 0711 /var/lib/containerd \
+     && echo "$CONTAINERD_DATA /var/lib/containerd none bind,x-systemd.requires-mounts-for=/var/lib/docker 0 0" >> /etc/fstab \
+     && install -d "$(dirname "$CONTAINERD_DROPIN")" \
+     && printf '[Unit]\nRequiresMountsFor=/var/lib/containerd\n' > "$CONTAINERD_DROPIN" \
+     && systemctl daemon-reload && mount /var/lib/containerd && containerd_start "$running"; then
+    rm -rf /var/lib/containerd.ancien
+    echo "${G}containerd sur le disque de données ($CONTAINERD_DATA) : $size Mio libérés sur la partition système.${N}"
+  else
+    echo "${R}Redémarrage en échec après le déplacement : retour à l'ancien emplacement de containerd.${N}"
+    systemctl stop docker.socket docker containerd || true
+    containerd_bind_undo
+    containerd_start "$running" || echo "${R}Conteneurs non redémarrés : sudo docker compose -f $APP/docker-compose.yml up -d${N}"
+  fi
+}
+need_docker=10240 need_sys=2048   # Mio : reconstruction de toutes les images ; sauvegarde de /opt/minisoc et paquet
+containerd_migrate
+# Images et cache de construction : /var/lib/containerd (magasin d'images containerd, Docker 29 et plus) ou
+# /var/lib/docker (overlay2), selon le stockage de Docker
+images_dir=/var/lib/docker
+[ "$(docker info -f '{{.DriverStatus}}' 2>/dev/null | grep -c containerd.snapshotter)" = 0 ] || images_dir=/var/lib/containerd
+free_docker=$(free_mib "$images_dir") free_sys=$(free_mib /var/backups)
+echo "Libre : images Docker ($images_dir) $((free_docker / 1024)) Gio, système (/var/backups, /opt) $((free_sys / 1024)) Gio"
+if [ "${free_docker:-0}" -lt "$need_docker" ] || [ "${free_sys:-0}" -lt "$need_sys" ]; then
+  echo "${R}Place insuffisante : $((need_docker / 1024)) Gio libres nécessaires pour Docker, $((need_sys / 1024)) Gio pour le système.${N}"
+  df -h /var/lib/docker "$images_dir" / /var/log | awk '!seen[$1]++'
+  docker system df 2>/dev/null || true
+  echo "Mise à jour abandonnée avant toute modification. Libérer de la place puis relancer."
+  exit 1
+fi
+
 # ---------- Sauvegarde de l'existant ----------
 step "sauvegarde"
 stamp=$(date +%Y%m%d-%H%M%S)
@@ -63,6 +149,7 @@ done
 
 restore_app() {
   echo "${R}Échec : remise en place de l'application précédente.${N}"
+  cd /   # le dossier courant ($APP) est déplacé puis effacé
   rm -rf "$APP.echec" && mv "$APP" "$APP.echec" && tar -xzf "$bk/opt-minisoc.tar.gz" -C /opt \
     && cp -a "$APP.echec/data/geoip" "$APP/data/" 2>/dev/null || true
   rm -rf "$APP.echec"
@@ -339,6 +426,7 @@ elif [ "$pending" = 0 ]; then
   # Paquet appliqué (la sauvegarde ci-dessous permet le retour arrière) et images Docker devenues inutiles
   rm -f "$BUNDLE" "$BUNDLE.sha256"
   docker image prune -f >/dev/null 2>&1 || true
+  docker builder prune -af >/dev/null 2>&1 || true
   # Images reconstruites : nouvelle analyse Trivy en tâche de fond (Intégrations › Trivy, page Vulnérabilités)
   systemctl start --no-block minisoc-trivy.service && echo "Analyse Trivy des nouvelles images lancée en tâche de fond."
 else

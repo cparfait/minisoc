@@ -111,7 +111,8 @@ ses serveurs de temps.
    `/var/log/minisoc-firstboot.log`). Elle vérifie d'abord que les serveurs Internet listés ci-dessous sont
    joignables : sinon elle **se met en pause**, affiche ceux à autoriser sur le XGS (nom et port) et réessaie
    chaque minute (`sudo touch /run/minisoc-firstboot-sans-controle` pour passer outre). Ensuite :
-   - disque de données formaté et monté sur `/var/lib/docker` ;
+   - disque de données formaté et monté sur `/var/lib/docker` ; `/var/lib/containerd` (images, couches et cache de
+     construction de Docker 29 et plus) y est lié aussi, pour ne pas remplir la partition système ;
    - Docker (§ 5) et durcissement (§ 4) ;
    - Mini-SOC installé dans `/opt/minisoc`, `.env` créé, certificats syslog TLS générés, application construite
      et démarrée (§ 7) ;
@@ -146,7 +147,9 @@ le certificat racine à déployer par GPO (§ 7.2), les agents HarfangLab/NinjaO
    plusieurs).
 5. Partitionnement (manuel) :
    - disque 1 : `/boot/efi` 512 Mo, `/` 30 Go, `/var/log` 8 Go (ext4), échange 2 Go ;
-   - disque 2 : une partition ext4 montée sur `/var/lib/docker`.
+   - disque 2 : une partition ext4 montée sur `/var/lib/docker`, et `/var/lib/containerd` lié dessus (images Docker) :
+     `/var/lib/docker/minisoc-containerd /var/lib/containerd none bind,x-systemd.requires-mounts-for=/var/lib/docker 0 0`
+     dans `/etc/fstab`, et `RequiresMountsFor=/var/lib/containerd` dans un complément de `containerd.service`.
 6. Sélection des logiciels : **uniquement** « serveur SSH » et « utilitaires usuels du système ».
    Ni environnement de bureau, ni serveur web.
 7. Dans le DNS de l'AD, créer les enregistrements A et PTR de `minisoc.mairie.local`.
