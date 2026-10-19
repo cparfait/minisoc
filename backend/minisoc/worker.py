@@ -38,6 +38,7 @@ from minisoc.events_store import EventStore
 from minisoc.export import Exporter, alert_payload
 from minisoc.geoip import GeoIP
 from minisoc.geoip_update import GeoIPUpdater
+from minisoc.hostdisk import HostDiskJob
 from minisoc.housekeeping import purge
 from minisoc.identity import IDENTITIES, host_key, user_key
 from minisoc.integrations import (
@@ -580,6 +581,8 @@ async def main() -> None:
     archive_job = ArchiveJob(sessionmaker(), store)
     asset_job = AssetJob(sessionmaker(), redis)
     risk_job = RiskJob(sessionmaker(), store, lambda: worker.rules, worker.raise_alert)
+    disk_job = HostDiskJob(sessionmaker(), redis, settings.disk_dir, lambda: worker.rules, worker.raise_alert,
+                           worker.exceptions)
     coverage_job = CoverageJob(sessionmaker(), redis, store, lambda: worker.rules, worker.exceptions,
                                worker.notify_event.set)
     await asyncio.gather(
@@ -611,6 +614,7 @@ async def main() -> None:
         supervise("archives scellées", archive_job.run),
         supervise("inventaire", asset_job.run),
         supervise("risque et chaînes", risk_job.run),
+        supervise("espace des disques (VM)", disk_job.run),
         supervise("couverture antivirus et EDR", coverage_job.run),
         supervise("export SIEM", worker.exporter.run),
     )

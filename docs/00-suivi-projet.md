@@ -170,7 +170,8 @@ Code non versionné à ce jour (pas de dépôt git, aucun commit demandé).
   externes relues chaque jour ; alerte UC-42, notifiée même pour une correspondance ancienne.
 - **Archives scellées** : un fichier JSON compressé par jour, SHA-256 chaîné à la veille, manifeste vérifiable
   sans le Mini-SOC ; vérification de toute la chaîne et téléchargement (tracés) ; dernière empreinte ancrée dans le
-  résumé quotidien par e-mail. Volume Docker `archives`.
+  résumé quotidien par e-mail. Volume Docker `archives`, présenté en lecture seule dans
+  `/var/backups/minisoc/archives` pour le serveur de sauvegarde (montage lié, sans copie sur la partition système).
 - **Export vers un SIEM ou un SOC** (intégration) : syslog RFC 5424 en TLS, TCP ou UDP, JSON ECS ou CEF ; alertes
   seules ou tous les événements ; file d'attente bornée (une cible injoignable ne ralentit jamais la détection).
 
@@ -296,6 +297,13 @@ agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
   mis à jour. Sorties nécessaires en plus : `dl-cdn.alpinelinux.org` et `deb.debian.org` en 443.
 - Sauvegarde nocturne chiffrée (`backup.sh` en cron), récupérée par un serveur tiers en lecture seule ; essai de
   restauration trimestriel.
+- ✅ 18/10 : **partition système protégée** (28 Go). La copie nocturne des archives scellées dans `/var/backups`
+  (sans limite) est remplacée par un montage lié en lecture seule du volume ; `minisoc-update` déplace l'ancienne
+  copie sur le disque de données après l'avoir comparée au volume, sans rien effacer (commande d'effacement
+  affichée). **Alerte UC-63** sur l'espace des disques de la VM (`/`, `/var/log`, `/var/lib/docker`…) : relevé
+  toutes les 5 minutes par le service hôte `minisoc-disk` (`deploy/disk`), seuil réglable (85 % par défaut, haute
+  à 95 %, espace ou inodes), alerte si le relevé s'arrête, clôture automatique ; état dans Statistiques › Disques
+  de la VM. À valider sur la VM après mise à jour : `findmnt /var/backups/minisoc/archives`, relevé à jour.
 - Sonde externe de disponibilité (ex. Uptime Kuma) sur `/api/health/full` (S-12).
 - Comptes : groupe AD des administrateurs et des lecteurs, compte de service LDAPS ; enrôlement MFA de chacun.
 - Notifications réelles (SMTP de la collectivité, canal Teams, ntfy) et plages horaires.

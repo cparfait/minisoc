@@ -868,6 +868,9 @@ button.ghost.small.icon-only { padding: 5px 7px; }
 .stats-double .stats-track:first-child { background: var(--panel-2); }
 .stats-possible { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .stats-certain { background: var(--accent); }
+.stats-disk-track { display: block; min-width: 120px; }
+.stats-disk-over { background: var(--high); }
+.stats-disk-full { background: var(--critical); }
 .stats-grid-3 td:first-child { white-space: nowrap; }
 .sev-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
 .stats-line { fill: none; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }

@@ -1,4 +1,4 @@
-import { Activity, CalendarClock, ChartNoAxesCombined, Info, Gauge, Target, Timer, TriangleAlert, Waypoints } from "lucide-react";
+import { Activity, CalendarClock, ChartNoAxesCombined, Info, Gauge, HardDrive, Target, Timer, TriangleAlert, Waypoints } from "lucide-react";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, query } from "../api";
@@ -51,9 +51,31 @@ interface HeatSummary {
   off_hours_pct: number | null;
   peak: { day: string; hour: number; count: number } | null;
 }
+interface Filesystem {
+  mount: string;
+  device: string;
+  fstype: string;
+  size: number;
+  used: number;
+  avail: number;
+  percent: number;
+  inodes_percent: number;
+  over: boolean;
+}
+interface Disks {
+  state: "ok" | "alert" | "stale" | "absent" | "error";
+  error: string;
+  at: string | null;
+  age_minutes: number | null;
+  host: string;
+  threshold: number;
+  high: number;
+  filesystems: Filesystem[];
+}
 interface Analytics {
   period: { since: string; until: string; previous_since: string; timezone: string };
   events_error: string;
+  disks: Disks | null;
   sources: {
     granularity: "day" | "week";
     buckets: string[];
@@ -384,6 +406,79 @@ function Sparkline({ values, buckets }: { values: number[]; buckets: string[] })
         </rect>
       ))}
     </svg>
+  );
+}
+
+function gib(bytes: number): string {
+  const g = bytes / 1024 ** 3;
+  return `${g >= 100 ? Math.round(g) : g.toFixed(1).replace(".", ",")} Gio`;
+}
+
+function DisksCard({ d }: { d: Disks | null }) {
+  if (!d || d.state === "absent") {
+    return (
+      <Card title="Disques de la VM" icon={HardDrive}>
+        <p className="muted">Aucun relevé : service minisoc-disk absent (installation hors VM, ou VM pas encore mise à jour).</p>
+      </Card>
+    );
+  }
+  const over = d.filesystems.filter((f) => f.over);
+  return (
+    <Card title="Disques de la VM" icon={HardDrive}>
+      {d.state === "error" ? (
+        <p className="text-bad">Relevé illisible : {d.error}</p>
+      ) : (
+        <p>
+          {d.state === "stale" ? (
+            <strong className="text-bad">Relevé arrêté depuis {duration(d.age_minutes)} (alerte UC-63) : sudo journalctl -u minisoc-disk</strong>
+          ) : over.length ? (
+            <strong className="text-bad">{over.length} partition(s) au-delà de {d.threshold} % : alerte UC-63 ouverte</strong>
+          ) : (
+            <>Toutes les partitions sous le seuil de {d.threshold} %</>
+          )}
+          {" "}· relevé {d.at ? formatShort(d.at) : "—"}{d.host ? ` sur ${d.host}` : ""}.
+        </p>
+      )}
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Partition</th>
+              <th className="stats-bar-col">Occupation</th>
+              <th className="num">Utilisé</th>
+              <th className="num">Libre</th>
+              <th className="num">Taille</th>
+              <th className="num" title="Fichiers : un disque peut être plein sans manquer de place">Inodes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.filesystems.map((f) => {
+              const level = Math.max(f.percent, f.inodes_percent);
+              const tone = level >= d.high ? "stats-disk-full" : f.over ? "stats-disk-over" : "stats-certain";
+              return (
+                <tr key={f.mount}>
+                  <td><code>{f.mount}</code> <span className="muted small">{f.device} · {f.fstype}</span></td>
+                  <td>
+                    <span className="report-track stats-disk-track" title={`${f.percent} %`}>
+                      <span className={`report-fill ${tone}`} style={{ width: `${f.percent}%` }} />
+                    </span>
+                  </td>
+                  <td className={`num ${f.percent >= d.threshold ? "text-bad" : ""}`}>{gib(f.used)} · {f.percent} %</td>
+                  <td className="num">{gib(f.avail)}</td>
+                  <td className="num muted">{gib(f.size)}</td>
+                  <td className={`num ${f.inodes_percent >= d.threshold ? "text-bad" : "muted"}`}>{f.inodes_percent} %</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <Method lines={[
+        "Relevé toutes les 5 minutes par le service minisoc-disk de la VM (le Mini-SOC tourne dans des conteneurs qui ne voient pas les disques de l'hôte) ; une ligne par système de fichiers local, montages liés comptés une fois.",
+        `Occupation comme df : espace utilisé ÷ espace accessible (réserve de root exclue). Alerte UC-63 au-delà de ${d.threshold} % en espace ou en inodes (Paramètres › Détection), haute à partir de ${d.high} % ; clôturée automatiquement sous ${d.threshold - 3} %.`,
+        "Un relevé vieux de plus d'une heure déclenche aussi l'alerte : sans lui, la VM pourrait se remplir sans que personne ne le voie.",
+      ]} />
+    </Card>
   );
 }
 
@@ -822,6 +917,8 @@ export default function Stats() {
           </Card>
 
           <SourcesCard s={data.sources} error={data.events_error} />
+
+          <DisksCard d={data.disks} />
 
           <Card title="Qualité des détections" icon={Gauge}>
             <p>

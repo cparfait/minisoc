@@ -675,6 +675,11 @@ exportée puis lue par un conteneur Trivy jetable, sans socket Docker ni privil�
 l'agent : jeton par serveur dans Intégrations › Trivy, adresse dans `sudo minisoc-setup` › Entrants › Serveurs
 Trivy (variable `TRIVY` du pare-feu, 443/TCP, limité à l'envoi des rapports : § 6.5).
 
+Espace des disques de la VM : le service `minisoc-disk` (installé par l'ISO et par `minisoc-update`, minuterie
+`minisoc-disk.timer` toutes les 5 minutes) relève les systèmes de fichiers locaux de l'hôte et dépose
+`/var/lib/minisoc/disques/disques.json`, monté en lecture seule dans le worker (variable `DISK_DIR` de `.env`). Les
+conteneurs ne voient pas les disques de l'hôte ; ce service, sans réseau ni privilège, les lit pour eux (§ 9).
+
 ---
 
 ## 8. Sauvegardes à l'abri d'une compromission de la VM
@@ -690,19 +695,38 @@ Sur la VM :
 sudo sh -c 'umask 077; openssl rand -base64 32 > /etc/minisoc/backup.pass'
 sudo groupadd --system minisoc-backup
 sudo useradd --system --gid minisoc-backup --create-home --home-dir /var/lib/minisoc-backup --shell /bin/sh minisoc-backup
-sudo install -d -o root -g minisoc-backup -m 750 /var/backups/minisoc     # archives (lecture seule pour le compte)
+sudo install -d -o root -g minisoc-backup -m 750 /var/backups/minisoc /var/backups/minisoc/archives
 ```
 
-`/etc/cron.d/minisoc-backup` :
+`/etc/cron.d/minisoc-backup` (sauvegarde chiffrée de la base, des paramètres et des règles ; 14 jours gardés) :
 
 ```text
 0 2 * * * root cd /opt/minisoc && BACKUP_DIR=/var/backups/minisoc BACKUP_PASSPHRASE_FILE=/etc/minisoc/backup.pass ./scripts/backup.sh >> /var/log/minisoc-backup.log 2>&1 && chgrp minisoc-backup /var/backups/minisoc/*.gpg && chmod 640 /var/backups/minisoc/*.gpg
-30 2 * * * root rsync -a /var/lib/docker/volumes/minisoc_archives/_data/ /var/backups/minisoc/archives/ && chgrp -R minisoc-backup /var/backups/minisoc/archives && chmod -R g+rX,o-rwx /var/backups/minisoc/archives
 ```
 
-La seconde ligne recopie les **archives scellées des journaux** (une par jour, empreintes chaînées, manifeste
-`manifest.jsonl`) : elles sont déjà compressées et leur intégrité se vérifie sans le Mini-SOC. Le serveur de
-sauvegarde les récupère avec le reste.
+Les **archives scellées des journaux** (une par jour, empreintes chaînées, manifeste `manifest.jsonl`, déjà
+compressées, vérifiables sans le Mini-SOC) restent dans le volume Docker `minisoc_archives`, sur le disque de
+données. Elles sont présentées **en lecture seule** dans `/var/backups/minisoc/archives` par un montage lié, sans
+copie : rien sur la partition système, et toujours à jour. Ligne de `/etc/fstab` :
+
+```text
+/var/lib/docker/volumes/minisoc_archives/_data /var/backups/minisoc/archives none bind,ro,nofail,x-systemd.requires-mounts-for=/var/lib/docker 0 0
+```
+
+```bash
+sudo systemctl daemon-reload && sudo mount /var/backups/minisoc/archives
+```
+
+Le Mini-SOC ne purge jamais les archives scellées (preuve, chaîne d'empreintes) : seul le volume, sur le disque de
+données (500 Go), grossit, et son occupation est surveillée (§ 9). Le serveur de sauvegarde les récupère avec le
+reste ; sa copie, hors de la VM, est la vraie protection (une archive effacée sur la VM y reste).
+
+> Jusqu'au 18/10/2026, une tâche nocturne (2 h 30) recopiait le volume dans `/var/backups/minisoc/archives`,
+> sur la partition système, sans limite. `minisoc-update` la retire une fois pour toutes : il compare l'ancienne
+> copie au volume (contenu fichier par fichier, manifeste), la **déplace** sur le disque de données
+> (`/var/lib/docker/minisoc-ancienne-copie-archives-<date>`), puis met le montage en place. Rien n'est effacé :
+> la commande d'effacement est affichée si la copie est identique au volume ; sinon, la liste des écarts est écrite
+> à côté (`….ecarts.txt`), à examiner (Archives › Vérifier la chaîne) avant toute décision.
 
 Compte de récupération : clé SSH du serveur de sauvegarde, limitée à la **lecture** de ce dossier.
 
@@ -729,7 +753,8 @@ rsync -a minisoc-backup@192.168.10.50:/ /sauvegardes/minisoc/
 Si le port SSH a été changé (`sudo minisoc-setup`, menu « Port SSH »), l'indiquer à rsync :
 `rsync -a -e 'ssh -p 2222' minisoc-backup@192.168.10.50:/ /sauvegardes/minisoc/`.
 
-Le serveur de sauvegarde gère lui-même la conservation des archives (par exemple 90 jours).
+Le serveur de sauvegarde gère lui-même la conservation des sauvegardes chiffrées (par exemple 90 jours) ; pour les
+archives scellées, garder au moins la durée de preuve décidée par la DSI.
 
 En plus :
 
@@ -747,6 +772,11 @@ En plus :
   parc.
 - **Dans le Mini-SOC** : les règles « source silencieuse » préviennent si une source cesse d'envoyer (XGS,
   serveurs Windows, HarfangLab). Un silence soudain de toutes les sources est un signal à traiter.
+- **Espace des disques** (règle UC-63) : alerte quand une partition de la VM (`/`, `/var/log`, disque de données
+  `/var/lib/docker`, `/boot`…) dépasse le seuil d'occupation de Paramètres › Détection (85 % par défaut), en espace
+  ou en inodes ; haute à partir de 95 %, clôturée automatiquement 3 points sous le seuil. Alerte aussi si le relevé
+  (`minisoc-disk`, § 7.4) s'arrête plus d'une heure. État des partitions : Statistiques › Disques de la VM. Que
+  faire : playbook de l'alerte (`backend/rules/playbooks/disk-space.md`).
 - **Contrôle mensuel** : `sudo ausearch -k minisoc-secrets -k sudo -k ssh -i --start this-month`.
 
 ---

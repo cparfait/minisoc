@@ -182,6 +182,8 @@ FIELDS: dict[str, Field] = {
     # Score de risque et chaînes d'attaque (minisoc/risk.py)
     "risk_threshold": Field("detection", "int", 60),
     "chain_auto_incident": Field("detection", "bool", True),
+    # Espace des disques de la VM (minisoc/hostdisk.py) : alerte UC-63 au-delà de cette occupation (%)
+    "disk_alert_percent": Field("detection", "int", 85),
     # Leurres (minisoc/decoys.py) : toute activité touchant ces éléments est malveillante
     "decoy_accounts": Field("detection", "list", []),
     "decoy_paths": Field("detection", "list", []),
@@ -347,6 +349,8 @@ def validate(key: str, value: Any) -> Any:
             raise SettingsError(f"wall_pages : écrans parmi {', '.join(WALL_PAGES)}, « alertes » obligatoire")
     if key == "wall_rotation" and not 0 <= int(value) <= 600:
         raise SettingsError("wall_rotation : entre 0 (pas de défilement) et 600 secondes")
+    if key == "disk_alert_percent" and not 50 <= int(value) <= 98:
+        raise SettingsError("disk_alert_percent : entre 50 et 98 %")
     if key == "risk_threshold" and not 20 <= int(value) <= 1000:
         raise SettingsError("risk_threshold : entre 20 et 1000 points")
     if key == "bitdefender_history_days" and not 0 <= int(value) <= 3650:

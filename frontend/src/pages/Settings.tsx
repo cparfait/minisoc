@@ -63,6 +63,8 @@ const DETECTION_FIELDS: FieldDef[] = [
     placeholder: "svc*, sa_*", help: "Les comptes machine (se terminant par $) ne sont jamais concernés par les motifs." },
   { key: "risk_threshold", label: "Score de risque : seuil d'alerte (points sur 7 jours)", kind: "int",
     help: "Défaut 60 : par exemple une détection haute et une critique, ou trois hautes avec deux tactiques MITRE. Au double du seuil, l'alerte devient critique." },
+  { key: "disk_alert_percent", label: "Disques de la VM Mini-SOC : seuil d'alerte d'occupation (%)", kind: "int",
+    help: "Défaut 85 : alerte UC-63 quand une partition (/, /var/log, disque de données) dépasse ce seuil, en espace ou en inodes ; haute à partir de 95 %. État dans Statistiques › Santé des sources." },
   { key: "chain_auto_incident", label: "Chaîne d'attaque (3 tactiques MITRE en 24 h) : ouvrir automatiquement un incident", kind: "bool" },
   { key: "decoy_accounts", label: "Leurres : comptes jamais utilisés", kind: "list", placeholder: "adm-sauvegarde, svc-sql-old",
     help: "Toute connexion, demande de ticket Kerberos ou modification de ces comptes crée une alerte critique (UC-45). Voir docs/05-leurres.md pour les créer." },

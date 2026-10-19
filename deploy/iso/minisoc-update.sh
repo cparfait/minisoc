@@ -112,6 +112,74 @@ containerd_migrate() {
 }
 need_docker=10240 need_sys=2048   # Mio : reconstruction de toutes les images ; sauvegarde de /opt/minisoc et paquet
 containerd_migrate
+
+# Archives scellées des journaux : la copie nocturne du volume dans /var/backups/minisoc/archives (cron, 2 h 30)
+# grossissait sans fin sur la partition système. Remplacée, une seule fois, par un montage lié en lecture seule du
+# volume au même endroit : le compte minisoc-backup et le serveur de sauvegarde n'y voient aucune différence.
+# Aucune archive n'est effacée : l'ancienne copie est comparée au volume puis déplacée sur le disque de données ;
+# l'effacer reste une décision de l'administrateur (commande affichée).
+ARCHIVES_VOL=/var/lib/docker/volumes/minisoc_archives/_data
+ARCHIVES_DIR=/var/backups/minisoc/archives
+archives_migrate() {
+  mountpoint -q "$ARCHIVES_DIR" && return 0                     # déjà fait
+  id minisoc-backup >/dev/null 2>&1 || return 0                 # sauvegardes non installées (§ 8)
+  [ -d "$ARCHIVES_VOL" ] || { echo "${Y}Volume des archives scellées introuvable : copie nocturne laissée en place.${N}"; return 0; }
+  step "archives scellées : présentées en lecture seule, plus de copie sur la partition système (une seule fois)"
+  [ ! -f /etc/cron.d/minisoc-backup ] \
+    || sed -i '\|minisoc_archives/_data/ /var/backups/minisoc/archives/|d' /etc/cron.d/minisoc-backup
+  install -d -o root -g minisoc-backup -m 750 "$ARCHIVES_DIR"
+  if [ -n "$(ls -A "$ARCHIVES_DIR")" ]; then
+    local size old ecarts manifest_ok=1
+    size=$(du -sxm "$ARCHIVES_DIR" | cut -f1)
+    old=/var/lib/docker/minisoc-ancienne-copie-archives-$(date +%Y%m%d-%H%M%S)
+    if [ "$(stat -c %d "$ARCHIVES_DIR")" != "$(stat -c %d /var/lib/docker)" ] \
+       && [ "$(free_mib /var/lib/docker)" -lt $((size + need_docker)) ]; then
+      echo "${R}Ancienne copie des archives ($size Mio) non déplacée : place insuffisante sur le disque de données.${N}"
+      echo "Copie nocturne arrêtée, ancienne copie laissée dans $ARCHIVES_DIR."
+      return 0
+    fi
+    # Fichiers de l'ancienne copie absents du volume ou différents (contenu comparé) ; le manifeste du volume doit
+    # commencer par celui de la copie (il ne fait que s'allonger)
+    ecarts=$(rsync -rcn --out-format='%n' --exclude=/manifest.jsonl "$ARCHIVES_DIR/" "$ARCHIVES_VOL/" | grep -v '/$' || true)
+    if [ -f "$ARCHIVES_DIR/manifest.jsonl" ]; then
+      cmp -s -n "$(stat -c %s "$ARCHIVES_DIR/manifest.jsonl")" "$ARCHIVES_DIR/manifest.jsonl" "$ARCHIVES_VOL/manifest.jsonl" \
+        || manifest_ok=0
+    fi
+    echo "Déplacement de l'ancienne copie ($size Mio) vers $old…"
+    if [ "$(stat -c %d "$ARCHIVES_DIR")" = "$(stat -c %d /var/lib/docker)" ]; then
+      mv "$ARCHIVES_DIR" "$old" && chmod 0700 "$old" && install -d -o root -g minisoc-backup -m 750 "$ARCHIVES_DIR"
+    else
+      install -d -m 0700 "$old"
+      if ! rsync -a "$ARCHIVES_DIR/" "$old/" \
+         || [ -n "$(rsync -rcn --out-format='%n' "$ARCHIVES_DIR/" "$old/" | grep -v '/$')" ]; then
+        echo "${R}Déplacement en échec : ancienne copie laissée dans $ARCHIVES_DIR (copie nocturne arrêtée).${N}"
+        return 0
+      fi
+      find "$ARCHIVES_DIR" -mindepth 1 -delete    # contenu vérifié identique dans $old
+    fi
+    if [ -z "$ecarts" ] && [ "$manifest_ok" = 1 ]; then
+      echo "${G}Ancienne copie identique aux archives du volume (contenu comparé fichier par fichier) : elle ne sert plus.${N}"
+      echo "  À effacer quand vous le souhaitez : sudo rm -rf $old"
+    else
+      printf '%s\n' $ecarts > "$old.ecarts.txt"
+      [ "$manifest_ok" = 1 ] || echo "manifest.jsonl (le manifeste du volume ne commence pas par celui de la copie)" >> "$old.ecarts.txt"
+      echo "${R}L'ancienne copie contient des archives absentes du volume ou différentes : $(wc -l < "$old.ecarts.txt") écart(s),${N}"
+      echo "${R}liste dans $old.ecarts.txt. À examiner (Archives › Vérifier la chaîne) ; ne rien effacer avant.${N}"
+      head -20 "$old.ecarts.txt"
+    fi
+  fi
+  grep -q " $ARCHIVES_DIR " /etc/fstab \
+    || echo "$ARCHIVES_VOL $ARCHIVES_DIR none bind,ro,nofail,x-systemd.requires-mounts-for=/var/lib/docker 0 0" >> /etc/fstab
+  systemctl daemon-reload
+  if mount "$ARCHIVES_DIR"; then
+    echo "${G}Archives scellées présentées en lecture seule dans $ARCHIVES_DIR (aucune copie).${N}"
+    [ ! -f "$ARCHIVES_DIR/manifest.jsonl" ] || runuser -u minisoc-backup -- test -r "$ARCHIVES_DIR/manifest.jsonl" \
+      || echo "${Y}Archives illisibles par le compte minisoc-backup : droits des fichiers du volume à vérifier.${N}"
+  else
+    echo "${R}Montage des archives en échec : sudo mount $ARCHIVES_DIR (entrée ajoutée à /etc/fstab).${N}"
+  fi
+}
+archives_migrate
 # Images et cache de construction : /var/lib/containerd (magasin d'images containerd, Docker 29 et plus) ou
 # /var/lib/docker (overlay2), selon le stockage de Docker
 images_dir=/var/lib/docker
@@ -136,7 +204,7 @@ tar -czf "$bk/systeme.tar.gz" --ignore-failed-read -P /usr/local/sbin/minisoc-se
   /usr/local/sbin/minisoc-firewall /usr/local/sbin/minisoc-firstboot /usr/local/sbin/minisoc-update \
   /etc/systemd/system/minisoc-firewall.service /etc/update-motd.d/05-minisoc /usr/local/share/minisoc "$LIB" \
   /usr/local/sbin/minisoc-trivy /etc/systemd/system/minisoc-trivy.service /etc/systemd/system/minisoc-trivy.timer \
-  /etc/systemd/system/minisoc-trivy.path \
+  /etc/systemd/system/minisoc-trivy.path /usr/local/sbin/minisoc-disk /etc/systemd/system/minisoc-disk.service   /etc/systemd/system/minisoc-disk.timer \
   2>/dev/null || true
 echo "Sauvegarde : $bk"
 ls -1dt "$BACKUPS"/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf   # on garde les 3 dernières
@@ -216,6 +284,14 @@ grep -q '^TRIVY_DIR=' "$APP/.env" || echo 'TRIVY_DIR=/var/lib/minisoc/trivy' >> 
 systemctl daemon-reload
 systemctl enable --now minisoc-trivy.timer minisoc-trivy.path >/dev/null 2>&1 \
   || echo "${Y}Minuterie de l'analyse Trivy non activée : sudo systemctl enable --now minisoc-trivy.timer minisoc-trivy.path${N}"
+# Espace des disques de la VM (deploy/disk) : relevé toutes les 5 minutes, lu par le worker (alerte UC-63)
+install -m 0750 "$APP/deploy/disk/minisoc-disk.sh" /usr/local/sbin/minisoc-disk
+for u in service timer; do install -m 0644 "$APP/deploy/disk/minisoc-disk.$u" /etc/systemd/system/; done
+install -d -m 0755 /var/lib/minisoc/disques
+grep -q '^DISK_DIR=' "$APP/.env" || echo 'DISK_DIR=/var/lib/minisoc/disques' >> "$APP/.env"
+systemctl daemon-reload
+systemctl enable --now minisoc-disk.timer >/dev/null 2>&1   || echo "${Y}Minuterie du relevé des disques non activée : sudo systemctl enable --now minisoc-disk.timer${N}"
+systemctl start minisoc-disk.service   || echo "${Y}Relevé de l'espace des disques en échec : sudo journalctl -u minisoc-disk${N}"
 if ! systemctl restart minisoc-firewall; then
   echo "${R}Pare-feu : nouvelle version en échec, retour à la précédente.${N}"
   tar -xzf "$bk/systeme.tar.gz" -P /usr/local/sbin/minisoc-firewall 2>/dev/null || true

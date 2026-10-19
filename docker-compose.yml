@@ -92,6 +92,8 @@ services:
       - archives:/var/lib/minisoc/archives
       # Échange avec le service minisoc-trivy de la VM (rapports, état, demande d'analyse) : dossier de l'hôte
       - ${TRIVY_DIR:-./data/trivy}:/var/lib/minisoc/trivy
+      # Espace des disques de la VM, relevé par le service minisoc-disk de l'hôte (deploy/disk) : lecture seule
+      - ${DISK_DIR:-./data/disques}:/var/lib/minisoc/disques:ro
 
   # Réception syslog des équipements (Sophos, Vectra, Varonis…) avec tampon disque, relayée à l'API
   vector:

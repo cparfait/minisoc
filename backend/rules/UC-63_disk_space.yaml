@@ -1,0 +1,18 @@
+id: UC-63
+name: Disque de la VM Mini-SOC presque plein
+type: match
+severity: medium
+description: >
+  Une partition de la VM Mini-SOC (/, /var/log, disque de données /var/lib/docker…) dépasse le seuil d'occupation
+  réglé dans Paramètres › Détection (85 % par défaut), en espace ou en inodes ; alerte haute à partir de 95 %. Un
+  disque plein arrête la réception des journaux, les bases et les mises à jour. Relevé toutes les 5 minutes par le
+  service minisoc-disk de la VM (minisoc/hostdisk.py) ; alerte aussi quand ce relevé s'arrête plus d'une heure.
+  Clôturée automatiquement quand l'occupation redescend de 3 points sous le seuil.
+# Filtre jamais vérifié : la règle sert de modèle aux alertes calculées
+filter:
+  event.module: {eq: "__calcul__"}
+group_by: [file.path]
+title: "Disque de la VM presque plein : {file.path} ({value} %)"
+dedup_window: 30d
+storm_limit: 0
+playbook: playbooks/disk-space.md

@@ -18,3 +18,4 @@ deploy/iso/vm.conf
 deploy/iso/authorized_keys
 data/tls/
 data/trivy/
+data/disques/

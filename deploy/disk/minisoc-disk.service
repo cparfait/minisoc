@@ -1,0 +1,21 @@
+[Unit]
+Description=Mini-SOC : relevé de l'espace des disques de la VM (lu par le worker, alerte UC-63)
+Documentation=file:///opt/minisoc/deploy/disk/minisoc-disk.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/minisoc-disk
+# Lecture seule de tout le système, sauf le dossier d'échange ; ni réseau ni privilège (root sans capacités)
+StateDirectory=minisoc/disques
+StateDirectoryMode=0755
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+Nice=10
+TimeoutStartSec=2min

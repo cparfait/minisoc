@@ -355,6 +355,8 @@ setenv SYSLOG_BIND "$vm_ip"
 setenv COMPOSE_PROFILES syslog-tls
 setenv TRIVY_DIR /var/lib/minisoc/trivy
 install -d -m 0750 /var/lib/minisoc/trivy
+setenv DISK_DIR /var/lib/minisoc/disques
+install -d -m 0755 /var/lib/minisoc/disques
 [ -f data/syslog-tls/server.crt ] || sh scripts/syslog_cert.sh "$fqdn" "$vm_ip"
 if [ "$APP_OK" = 1 ]; then
   net docker compose pull --ignore-buildable
@@ -414,9 +416,26 @@ install -d -o root -g minisoc-backup -m 750 /var/backups/minisoc /var/backups/mi
 install -d -o minisoc-backup -g minisoc-backup -m 700 /var/lib/minisoc-backup/.ssh
 cat > /etc/cron.d/minisoc-backup <<'EOF'
 0 2 * * * root cd /opt/minisoc && BACKUP_DIR=/var/backups/minisoc BACKUP_PASSPHRASE_FILE=/etc/minisoc/backup.pass ./scripts/backup.sh >> /var/log/minisoc-backup.log 2>&1 && chgrp minisoc-backup /var/backups/minisoc/*.gpg && chmod 640 /var/backups/minisoc/*.gpg
-30 2 * * * root rsync -a /var/lib/docker/volumes/minisoc_archives/_data/ /var/backups/minisoc/archives/ && chgrp -R minisoc-backup /var/backups/minisoc/archives && chmod -R g+rX,o-rwx /var/backups/minisoc/archives
 EOF
 chmod 644 /etc/cron.d/minisoc-backup
+# Archives scellées des journaux : le volume Docker est présenté en lecture seule dans /var/backups/minisoc/archives
+# (montage lié), sans copie : rien sur la partition système, toujours à jour. Le serveur de sauvegarde les y prend.
+ARCHIVES_VOL=/var/lib/docker/volumes/minisoc_archives/_data
+if mountpoint -q /var/backups/minisoc/archives; then
+  echo "archives scellées : déjà présentées dans /var/backups/minisoc/archives"
+elif [ -n "$(ls -A /var/backups/minisoc/archives 2>/dev/null)" ]; then
+  # Pas de montage par-dessus : l'ancienne copie serait cachée sans libérer de place
+  warn "ancienne copie des archives scellées dans /var/backups/minisoc/archives : sudo minisoc-update la déplacera sur le disque de données"
+else
+  grep -q ' /var/backups/minisoc/archives ' /etc/fstab \
+    || echo "$ARCHIVES_VOL /var/backups/minisoc/archives none bind,ro,nofail,x-systemd.requires-mounts-for=/var/lib/docker 0 0" >> /etc/fstab
+  systemctl daemon-reload
+  if [ ! -d "$ARCHIVES_VOL" ]; then
+    warn "volume des archives scellées absent (application non démarrée) : présenté au prochain démarrage de la VM"
+  elif ! mount /var/backups/minisoc/archives; then
+    warn "archives scellées non présentées dans /var/backups/minisoc/archives : sudo mount /var/backups/minisoc/archives"
+  fi
+fi
 warn "phrase de passe des sauvegardes (/etc/minisoc/backup.pass) et clé maître (MINISOC_MASTER_KEY de /opt/minisoc/.env) à copier dans le coffre-fort de la DSI"
 
 # ---------- Analyse Trivy de la VM (deploy/trivy) : chaque semaine, après les mises à jour, à la demande ----------
@@ -428,6 +447,13 @@ if [ "$APP_OK" = 1 ]; then
   systemctl start minisoc-trivy.timer minisoc-trivy.path
   systemctl start --no-block minisoc-trivy.service   # première analyse, en tâche de fond
 fi
+
+# ---------- Espace des disques de la VM (deploy/disk) : relevé toutes les 5 minutes, alerte UC-63 ----------
+install -m 0750 /opt/minisoc/deploy/disk/minisoc-disk.sh /usr/local/sbin/minisoc-disk
+for u in service timer; do install -m 0644 "/opt/minisoc/deploy/disk/minisoc-disk.$u" /etc/systemd/system/; done
+systemctl daemon-reload
+systemctl enable --now minisoc-disk.timer
+systemctl start minisoc-disk.service || warn "relevé de l'espace des disques en échec : sudo journalctl -u minisoc-disk"
 
 # ---------- Console de paramétrage et écran d'accueil de la console vSphere ----------
 install -m 0750 "$SRC/minisoc-setup.sh" /usr/local/sbin/minisoc-setup

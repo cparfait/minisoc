@@ -30,6 +30,9 @@ log = logging.getLogger(__name__)
 GENESIS = "0" * 64
 BATCH = 50_000
 MAX_CATCH_UP = 31  # jours rattrapés au plus par passage
+# Lisibles par le compte minisoc-backup de la VM (volume présenté en lecture seule dans /var/backups/minisoc/archives),
+# quel que soit le umask du conteneur ; les droits ne changent pas l'empreinte
+READABLE = 0o644
 
 
 def archive_dir() -> Path:
@@ -76,6 +79,8 @@ async def export_day(store, day: date, target: Path) -> int:
             if len(rows) < BATCH:
                 break
             cursor_ts, cursor_id = rows[-1]["ts"], rows[-1]["event_id"]
+    tmp.chmod(READABLE)
+    target.parent.chmod(READABLE | 0o111)
     tmp.replace(target)
     return count
 

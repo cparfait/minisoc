@@ -11,7 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
-from minisoc import analytics
+from minisoc import analytics, hostdisk
 from minisoc.api.deps import ANY_USER, get_db
 from minisoc.models import OPEN_STATUSES, Alert, AlertHistory, AuditLog, Block, Incident, IncidentEntry, User
 from minisoc.risk import BUILTIN_ACCOUNTS
@@ -161,6 +161,7 @@ async def get_analytics(
         "delays": analytics.delays(alerts, closings, open_now, incidents, entries, since, until, tz, now),
         "mitre": analytics.mitre_targets(alerts, rule_mitre),
         "sources": sources,
+        "disks": await hostdisk.load_status(state.redis),  # espace des disques de la VM, dernier relevé
         "heatmap": analytics.heatmap(alerts, events["auth"], events["offhours"], set(business_days), start, end, tz),
         "correlation": analytics.correlation(alerts, incidents, blocks, isolations, since, until),
     }
