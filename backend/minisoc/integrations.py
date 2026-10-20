@@ -269,6 +269,12 @@ CATALOG: tuple[Integration, ...] = (
                 ("low", "Faible"), ("medium", "Moyen (recommandé)"), ("high", "Élevé"))),
             FieldUI("ai_max_tokens", "Longueur maximale de réponse (jetons)", "int"),
             FieldUI("ai_pseudonymize", "Pseudonymiser avant envoi hors du réseau (RGPD)", "bool"),
+            FieldUI("ai_org_networks", "IP publiques de la collectivité (pseudonymisées)", "list",
+                    "Adresses ou plages publiques de vos sites (sorties Internet, services exposés). "
+                    "Les IP des attaquants restent visibles."),
+            FieldUI("ai_internal_domains", "Domaines internes (pseudonymisés)", "list",
+                    "Ex. mairie.local, ville.fr. Le domaine de l'annuaire LDAP et les suffixes .local, .lan, "
+                    ".intra, .corp sont déjà pris en compte."),
         ),
         test="ai",
         setup="Ajouter un fournisseur et sa clé, choisir le modèle dans la liste lue chez le fournisseur, puis Tester.",
@@ -366,6 +372,33 @@ CATALOG: tuple[Integration, ...] = (
             "3. Ici : e-mail du compte, clé d'API, code de l'organisation (facultatif) ; Enregistrer, puis Tester.\n"
             "4. Le Mini-SOC lit le journal OGO chaque minute (7 derniers jours au premier passage) et l'état des "
             "sites chaque heure, en HTTPS sortant : rien à ouvrir en entrée, rien n'est modifié dans OGO."
+        ),
+    ),
+    Integration(
+        id="wordpress", name="WordPress (sites web)", vendor="WordPress.org / WPScan", category="Vulnérabilités",
+        modes=("API REST", "détection publique"), enable_key="src_wordpress_enabled", modules=("wordpress",),
+        silence_minutes=3 * 24 * 60,
+        description="Inventaire quotidien des sites WordPress : version du cœur, extensions et thèmes, mises à jour "
+                    "disponibles (api.wordpress.org) et, avec un jeton WPScan, failles connues des versions "
+                    "installées (UC-63). Liste par site sur la page Vulnérabilités. Lecture seule, HTTPS sortant.",
+        fields=(
+            FieldUI("wordpress_wpscan_token", "Jeton d'API WPScan (failles connues)", "secret",
+                    help="Facultatif. Compte gratuit sur wpscan.com › Profil › API Token. Sans jeton : mises à "
+                    "jour seulement, sans alerte."),
+            FieldUI("wordpress_wpscan_daily", "Requêtes WPScan par jour", "int",
+                    help="25 pour l'offre gratuite. Les réponses sont gardées 7 jours : au-delà du quota, la suite "
+                    "est vérifiée les jours suivants."),
+            FieldUI("wordpress_verify_tls", "Vérifier le certificat des sites", "bool"),
+        ),
+        test="wordpress",
+        setup=(
+            "1. Sur chaque site (recommandé) : compte administrateur dédié « minisoc », puis Utilisateurs › Profil › "
+            "**Mots de passe d'application** › nom « Mini-SOC » › Ajouter ; copier le mot de passe affiché.\n"
+            "2. Ici, onglet Configuration : ajouter le site (adresse, identifiant, mot de passe d'application). "
+            "Sans identifiant, seule la partie visible du site est inventoriée (liste parfois incomplète).\n"
+            "3. Facultatif : jeton WPScan pour les failles connues et les alertes.\n"
+            "4. Activer, Enregistrer, puis Tester et « Analyser maintenant ». Site interne : l'autoriser en sortie "
+            "(sudo minisoc-setup › Accès sortants › Autres (LAN), adresse:443)."
         ),
     ),
     Integration(

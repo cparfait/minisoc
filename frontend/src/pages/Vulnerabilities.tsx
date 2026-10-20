@@ -5,6 +5,7 @@ import { api, query } from "../api";
 import { CritDot } from "../components/Hosts";
 import { ToolBadge } from "../components/AlertBits";
 import { TrivyCveCard, TrivySources, type TrivyCve } from "../components/Trivy";
+import { WordPressSites } from "../components/WordPress";
 import { Card, Empty, ErrorBanner, PageHeader, SeverityBadge, StatusBadge } from "../components/ui";
 import { usePolling } from "../hooks";
 import { formatDate, formatNumber, timeAgo } from "../labels";
@@ -112,6 +113,7 @@ function FleetView() {
     <>
       <ErrorBanner error={error} />
       <TrivySources />
+      <WordPressSites />
       <Card title="CVE présentes sur le parc (Cyberwatch, Trivy)" icon={Bug}>
         {!data?.at ? (
           <Empty>Pas encore de relevé Cyberwatch ni de rapport Trivy (Intégrations). La recherche ci-dessus fonctionne quand même pour la veille et les détections.</Empty>

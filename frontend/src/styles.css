@@ -283,6 +283,9 @@ tbody tr { transition: background .12s; }
 tbody tr:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.clickable { cursor: pointer; }
+.wp-detail > td { background: var(--panel-2); padding: 10px 14px; }
+.wp-components { font-size: 13px; }
+.wp-components .plain-list { gap: 2px; }
 tr.raw-row td { background: var(--code-bg); }
 tr.raw-row:hover td { background: var(--code-bg); }
 tr.disabled td { opacity: .55; }
@@ -446,6 +449,16 @@ tr.selected td { background: color-mix(in srgb, var(--accent) 9%, transparent); 
 .md-table { overflow-x: auto; margin: 10px 0; border: 1px solid var(--border); border-radius: 10px; }
 .md-table table { font-size: 13px; }
 .md-table th { background: var(--panel-2); }
+/* Réponses IA : titres teintés selon la section, références d'alerte/incident cliquables */
+.ai-answer .md-heading { --tone: var(--accent-2); display: flex; align-items: center; gap: 9px; margin: 20px 0 8px; padding-bottom: 6px; font-size: 15px; color: var(--tone); border-bottom: 1px solid color-mix(in srgb, var(--tone) 22%, transparent); }
+.ai-answer .md-heading::before { content: ""; flex-shrink: 0; width: 4px; height: 16px; border-radius: 2px; background: var(--tone); box-shadow: 0 0 10px color-mix(in srgb, var(--tone) 55%, transparent); }
+.ai-answer .md-heading:first-child { margin-top: 0; }
+.ai-answer .md-tone-summary { --tone: var(--accent); }
+.ai-answer .md-tone-assess { --tone: var(--warn); }
+.ai-answer .md-tone-action { --tone: var(--good); }
+.ai-answer .md-tone-check { --tone: var(--low); }
+.md-ref { white-space: nowrap; font-weight: 600; color: var(--link); padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--link) 12%, transparent); text-decoration: none; }
+.md-ref:hover { background: color-mix(in srgb, var(--link) 22%, transparent); text-decoration: underline; }
 .md-note { margin: 10px 0; padding: 10px 14px; border-left: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 0 8px 8px 0; font-size: 13px; }
 
 /* ---------- Blocages, géographie, veille ---------- */

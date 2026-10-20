@@ -1,0 +1,19 @@
+id: UC-63
+name: Composant WordPress vulnérable sur un site de la collectivité
+type: match
+severity: from_event
+category: hygiene
+description: >
+  L'inventaire quotidien d'un site WordPress (intégration WordPress, failles connues fournies par WPScan) trouve
+  le cœur, une extension ou un thème dans une version touchée par une faille publiée. Un site WordPress est exposé
+  à Internet : ces failles sont recherchées en masse par des robots dès leur publication. Seules les failles
+  apparues depuis l'inventaire précédent sont signalées ; l'état complet est sur la page Vulnérabilités.
+filter:
+  event.module: wordpress
+  event.action: vulnerable_component
+group_by: [host.name]
+title: "{message}"
+dedup_window: 7d
+storm_limit: 10
+mitre: [T1190]
+playbook: playbooks/wordpress-vulnerabilities.md

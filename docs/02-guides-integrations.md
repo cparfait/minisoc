@@ -21,6 +21,7 @@ intégration pas encore raccordée), avec l'adresse du Mini-SOC déjà renseign�
 | Assistant IA | API | [ai.md](../backend/minisoc/guides/ai.md) |
 | Cyberwatch (vulnérabilités) | API (lecture seule) | [cyberwatch.md](../backend/minisoc/guides/cyberwatch.md) |
 | OGO Security (WAF) | API (clé d'API, lecture seule) | [ogo.md](../backend/minisoc/guides/ogo.md) |
+| WordPress (mises à jour, failles WPScan) | API REST (mot de passe d'application) ou détection publique | [wordpress.md](../backend/minisoc/guides/wordpress.md) |
 | NinjaOne, isolation de poste | à venir | [ninjaone.md](../backend/minisoc/guides/ninjaone.md), [edr_isolation.md](../backend/minisoc/guides/edr_isolation.md) |
 
 Ordre conseillé pour la mise en service sur la VM : GeoIP et veille, Sophos XGS, Active Directory, HarfangLab

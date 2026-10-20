@@ -370,7 +370,7 @@ s_outbound() {
       "4" "Messagerie       $(count SMTP) adr.  relais SMTP (adresse:port)" \
       "5" "Sophos XGS API   $(count XGS_API) adr.  4444/TCP : règles, blocage d'IP" \
       "6" "CrowdSec         $(count CROWDSEC) adr.  serveur (adresse:port)" \
-      "7" "Autres (LAN)     $(count OTHER_OUT) adr.  Ollama, Cyberwatch, Brain Vectra…" \
+      "7" "Autres (LAN)     $(count OTHER_OUT) adr.  Ollama, Cyberwatch, Vectra, WordPress…" \
       "8" "SaaS / Internet  ports $INTERNET_PORTS") || return 0
     case $c in
       1) edit_list DNS "Accès sortants > DNS" "Serveurs DNS de la VM." addrs 1 ;;

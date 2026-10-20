@@ -52,11 +52,32 @@ async def _extras(redis, cfg: dict) -> dict[str, dict]:
         trivy_detail += f" · {others} serveur(s)"
     return {
         "trivy": {"detail": trivy_detail},
+        "wordpress": {"detail": await _wordpress_detail(redis, cfg)},
         "geoip": {"ready": bool(files), "detail": geo_detail},
         "veille": {"ready": bool(kev.get("updated")),
                    "detail": f"{kev.get('count', '?')} CVE dans le catalogue KEV" if kev else "Jamais récupérée"},
         "ai": {"ready": ai_configured(cfg), "detail": cfg.get("ai_provider", "")},
     }
+
+
+async def _wordpress_detail(redis, cfg: dict) -> str:
+    from minisoc.connectors import wordpress
+
+    declared = wordpress.sites(cfg)
+    if not declared:
+        return "Aucun site déclaré (onglet Configuration)"
+    states = wordpress.load_states(await redis.hgetall(wordpress.STATE_KEY))
+    rows = [wordpress.counts(states[s["url"]]) for s in declared if s["url"] in states]
+    status = json.loads(await redis.get(wordpress.STATUS_KEY) or "{}")
+    if not rows:
+        return f"{len(declared)} site(s) déclaré(s), premier inventaire en attente"
+    text = (f"{len(declared)} site(s) : {sum(r['updates'] for r in rows)} mise(s) à jour à faire, "
+            f"{sum(r['vulnerable'] for r in rows)} composant(s) vulnérable(s)")
+    if status.get("errors"):
+        text += f" · {len(status['errors'])} site(s) en échec"
+    if status.get("quota_reached"):
+        text += " · quota WPScan du jour atteint"
+    return text
 
 
 @router.get("/api/integrations")
@@ -160,6 +181,14 @@ async def test_integration(integration_id: str, request: Request, db: AsyncSessi
         ok, detail = await connector.test(await settings_store.load(db, force=True))
         await audit.record(db, actor=user.username, ip=client_ip(request), action=f"{item.test}_test",
                            obj=f"integration:{item.id}", detail={"ok": ok})
+        await db.commit()
+        return {"ok": ok, "detail": detail}
+    if item.test == "wordpress":
+        from minisoc.connectors import wordpress
+
+        ok, detail = await wordpress.test(await settings_store.load(db, force=True), request.app.state.redis)
+        await audit.record(db, actor=user.username, ip=client_ip(request), action="wordpress_test",
+                           obj="integration:wordpress", detail={"ok": ok})
         await db.commit()
         return {"ok": ok, "detail": detail}
     if item.test == "geoip":

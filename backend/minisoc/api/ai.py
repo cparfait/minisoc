@@ -22,7 +22,7 @@ from minisoc.ai import catalog
 from minisoc.ai.context import alert_context, event_context, host_focus, mentioned_hosts, situation_context
 from minisoc.ai.prompts import SYSTEM
 from minisoc.ai.providers import AIError, StreamResult, configured, is_local, list_models, model, provider, stream_chat
-from minisoc.ai.pseudonymize import Pseudonymizer, StreamRestorer
+from minisoc.ai.pseudonymize import Pseudonymizer, StreamRestorer, for_settings
 from minisoc.api.alerts import impacted_hosts
 from minisoc.api.data import sources_status
 from minisoc.api.deps import ADMIN, ANALYST, ANY_USER, client_ip, get_db
@@ -145,7 +145,7 @@ async def analyze_alert(alert_id: int, body: Conversation, request: Request, db:
         raise HTTPException(404, "Alerte introuvable")
     state = request.app.state
     rule = state.rules.by_id.get(alert.rule_id)
-    pseudo = Pseudonymizer(enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
+    pseudo = for_settings(cfg, enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
     playbook = load_playbook(state.settings.rules_dir, rule) if rule else ""
     # Correctifs Cyberwatch des machines concernées : de quoi répondre « quoi mettre à jour » machine par machine
     states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
@@ -164,7 +164,7 @@ async def analyze_event(event_id: str, body: Conversation, request: Request, db:
     events = await state.store.by_ids([event_id], limit=1)
     if not events:
         raise HTTPException(404, "Événement introuvable")
-    pseudo = Pseudonymizer(enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
+    pseudo = for_settings(cfg, enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
     states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
     host = str(events[0].get("host_name") or "")
     cyber = cyberwatch.hosts_patches(states, [host], limit=6) if host else {}
@@ -182,7 +182,7 @@ async def chat(body: Conversation, request: Request, db: AsyncSession = Depends(
         raise HTTPException(422, "Question manquante")
     cfg = await _ready_cfg(db, user)
     state = request.app.state
-    pseudo = Pseudonymizer(enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
+    pseudo = for_settings(cfg, enabled=bool(cfg.get("ai_pseudonymize")) and not is_local(cfg))
     # Machines citées dans la conversation : leurs alertes ouvertes et leur état Cyberwatch, en tête du contexte
     states = cyberwatch.load_states(await state.redis.hgetall(cyberwatch.STATE_KEY))
     known = {str(s.get("name") or "").lower().split(".")[0] for s in states.values()}
