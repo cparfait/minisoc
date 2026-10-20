@@ -111,7 +111,7 @@ export default function AIConversation({ path, initialQuestion, placeholder, aut
           )
         ) : (
           <div key={i} className="ai-answer">
-            {t.content ? <Markdown text={t.content} /> : <span className="muted">Analyse en cours…</span>}
+            {t.content ? <Markdown text={t.content} links /> : <span className="muted">Analyse en cours…</span>}
           </div>
         ),
       )}
