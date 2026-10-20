@@ -32,6 +32,7 @@ from minisoc.api import (
     search,
     trivy,
     wall,
+    wordpress,
 )
 from minisoc.api import assets as assets_api
 from minisoc.api import integrations as integrations_api
@@ -142,5 +143,5 @@ async def health_full(request: Request):
 
 for module in (auth, alerts, data, exceptions, ingest, wall, admin, ai, response_api, integrations_api, accounts_api,
                incidents, reports, detections, search, rules_admin, assets_api, iocs, archives, posture_api, trivy,
-               ogo, analytics):
+               ogo, analytics, wordpress):
     app.include_router(module.router)

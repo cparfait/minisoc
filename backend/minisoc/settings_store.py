@@ -6,6 +6,7 @@ Les secrets sont chiffrés en base (AES-256-GCM) et ne sont jamais renvoyés au 
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -70,6 +71,7 @@ FIELDS: dict[str, Field] = {
     "src_vectra_enabled": Field("integrations", "bool", False),
     "src_varonis_enabled": Field("integrations", "bool", False),
     "src_ogo_enabled": Field("integrations", "bool", False),
+    "src_wordpress_enabled": Field("integrations", "bool", False),
     "src_syslog_enabled": Field("integrations", "bool", False),
     "geoip_enabled": Field("integrations", "bool", False),
     "bitdefender_token": Field("connectors", "str", "", secret=True, env="bitdefender_token"),
@@ -146,6 +148,11 @@ FIELDS: dict[str, Field] = {
     "ogo_email": Field("connectors", "str", ""),
     "ogo_api_key": Field("connectors", "str", "", secret=True),
     "ogo_organization": Field("connectors", "str", ""),  # vide : la seule organisation du compte
+    # WordPress : sites inventoriés chaque jour ([{url, user, password}] chiffré), failles connues par WPScan
+    "wordpress_sites": Field("connectors", "str", "[]", secret=True),
+    "wordpress_wpscan_token": Field("connectors", "str", "", secret=True),
+    "wordpress_wpscan_daily": Field("connectors", "int", 25),  # quota quotidien (offre gratuite : 25)
+    "wordpress_verify_tls": Field("connectors", "bool", True),
     # Microsoft 365 / Entra ID : inscription d'application (ActivityFeed.Read), journal d'audit unifié
     "m365_tenant_id": Field("connectors", "str", ""),
     "m365_client_id": Field("connectors", "str", ""),
@@ -314,6 +321,15 @@ def validate(key: str, value: Any) -> Any:
         for domain in (str(d).strip().strip(".") for d in items):
             if domain and not re.fullmatch(r"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+", domain):
                 raise SettingsError(f"ai_internal_domains : domaine invalide {domain} (ex. mairie.local)")
+    if key == "wordpress_wpscan_daily" and not 1 <= int(value) <= 100000:
+        raise SettingsError("wordpress_wpscan_daily : entre 1 et 100000 requêtes par jour")
+    if key == "wordpress_sites":
+        try:
+            items = json.loads(value or "[]")
+        except ValueError:
+            raise SettingsError("wordpress_sites : JSON invalide") from None
+        if not isinstance(items, list) or not all(isinstance(i, dict) and i.get("url") for i in items):
+            raise SettingsError("wordpress_sites : liste de sites {url, user, password} attendue")
     if key == "xgs_block_group" and value and not re.fullmatch(r"[\w .-]{1,50}", str(value)):
         raise SettingsError("xgs_block_group : 50 caractères maximum (lettres, chiffres, espace, . _ -)")
     if key == "block_default_hours" and not 1 <= int(value) <= 24 * 90:

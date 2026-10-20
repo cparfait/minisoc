@@ -29,6 +29,7 @@ from minisoc.connectors.ninjaone import NinjaOneConnector
 from minisoc.connectors.ogo import OgoConnector
 from minisoc.connectors.varonis import VaronisConnector
 from minisoc.connectors.vectra import VectraConnector
+from minisoc.connectors.wordpress import WordPressJob
 from minisoc.coverage import CoverageJob
 from minisoc.db import init_db, sessionmaker
 from minisoc.decoys import Decoys
@@ -572,6 +573,7 @@ async def main() -> None:
     ogo = OgoConnector(sessionmaker(), redis)
     geoip_updater = GeoIPUpdater(sessionmaker(), redis, settings.geoip_dir)
     trivy_local = TrivyLocalJob(sessionmaker(), redis, settings.trivy_dir)
+    wordpress_job = WordPressJob(sessionmaker(), redis)
     gravityzone = GravityZoneConnector(sessionmaker(), redis)
     crowdsec = CrowdSecConnector(sessionmaker(), redis)
     status_sync = SourceStatusSync(sessionmaker(), redis, store)
@@ -605,6 +607,7 @@ async def main() -> None:
         supervise("ogo", ogo.run),
         supervise("bases GeoIP", geoip_updater.run),
         supervise("trivy (VM)", trivy_local.run),
+        supervise("wordpress", wordpress_job.run),
         supervise("gravityzone", gravityzone.run),
         supervise("synchro des statuts", status_sync.run),
         supervise("chasse aux IOC", ioc_hunter.run),

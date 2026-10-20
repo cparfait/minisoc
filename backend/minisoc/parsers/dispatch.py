@@ -22,6 +22,7 @@ from minisoc.parsers.trivy import parse_trivy
 from minisoc.parsers.varonis import parse_varonis
 from minisoc.parsers.vectra import parse_vectra
 from minisoc.parsers.windows import looks_like_windows, parse_windows
+from minisoc.parsers.wordpress import parse_wordpress
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ def parse_message(kind: str, payload: str, *, bitdefender_url: str = "", harfang
             return parse_ogo(data, received)
         if kind == "trivy":
             return parse_trivy(data, received)
+        if kind == "wordpress":
+            return parse_wordpress(data, received)
         raise ValueError(f"type de message inconnu : {kind}")
     except Exception as exc:  # noqa: BLE001 - aucun message ne doit être perdu
         log.warning("message non analysable (%s) : %s", kind, exc)

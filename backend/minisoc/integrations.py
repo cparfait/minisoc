@@ -375,6 +375,33 @@ CATALOG: tuple[Integration, ...] = (
         ),
     ),
     Integration(
+        id="wordpress", name="WordPress (sites web)", vendor="WordPress.org / WPScan", category="Vulnérabilités",
+        modes=("API REST", "détection publique"), enable_key="src_wordpress_enabled", modules=("wordpress",),
+        silence_minutes=3 * 24 * 60,
+        description="Inventaire quotidien des sites WordPress : version du cœur, extensions et thèmes, mises à jour "
+                    "disponibles (api.wordpress.org) et, avec un jeton WPScan, failles connues des versions "
+                    "installées (UC-63). Liste par site sur la page Vulnérabilités. Lecture seule, HTTPS sortant.",
+        fields=(
+            FieldUI("wordpress_wpscan_token", "Jeton d'API WPScan (failles connues)", "secret",
+                    help="Facultatif. Compte gratuit sur wpscan.com › Profil › API Token. Sans jeton : mises à "
+                    "jour seulement, sans alerte."),
+            FieldUI("wordpress_wpscan_daily", "Requêtes WPScan par jour", "int",
+                    help="25 pour l'offre gratuite. Les réponses sont gardées 7 jours : au-delà du quota, la suite "
+                    "est vérifiée les jours suivants."),
+            FieldUI("wordpress_verify_tls", "Vérifier le certificat des sites", "bool"),
+        ),
+        test="wordpress",
+        setup=(
+            "1. Sur chaque site (recommandé) : compte administrateur dédié « minisoc », puis Utilisateurs › Profil › "
+            "**Mots de passe d'application** › nom « Mini-SOC » › Ajouter ; copier le mot de passe affiché.\n"
+            "2. Ici, onglet Configuration : ajouter le site (adresse, identifiant, mot de passe d'application). "
+            "Sans identifiant, seule la partie visible du site est inventoriée (liste parfois incomplète).\n"
+            "3. Facultatif : jeton WPScan pour les failles connues et les alertes.\n"
+            "4. Activer, Enregistrer, puis Tester et « Analyser maintenant ». Site interne : l'autoriser en sortie "
+            "(sudo minisoc-setup › Accès sortants › Autres (LAN), adresse:443)."
+        ),
+    ),
+    Integration(
         id="m365", name="Microsoft 365 / Entra ID", vendor="Microsoft", category="Identité",
         modes=("API Office 365 Management",), enable_key="src_m365_enabled", modules=("m365",),
         silence_minutes=1440,

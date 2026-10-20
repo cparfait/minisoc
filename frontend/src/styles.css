@@ -283,6 +283,9 @@ tbody tr { transition: background .12s; }
 tbody tr:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.clickable { cursor: pointer; }
+.wp-detail > td { background: var(--panel-2); padding: 10px 14px; }
+.wp-components { font-size: 13px; }
+.wp-components .plain-list { gap: 2px; }
 tr.raw-row td { background: var(--code-bg); }
 tr.raw-row:hover td { background: var(--code-bg); }
 tr.disabled td { opacity: .55; }

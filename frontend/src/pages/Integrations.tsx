@@ -6,6 +6,7 @@ import { useUser } from "../App";
 import AiProviders from "../components/AiProviders";
 import Markdown from "../components/Markdown";
 import { TrivyAdmin } from "../components/Trivy";
+import { WordPressAdmin } from "../components/WordPress";
 import { Empty, ErrorBanner, PageHeader } from "../components/ui";
 import { usePolling } from "../hooks";
 import { formatDate, formatNumber, timeAgo } from "../labels";
@@ -474,6 +475,7 @@ function ConfigDialog({ item, admin, initialTab, onClose }: {
         )}
         {message && <p className={message.ok ? "text-good" : "text-bad"}>{message.text}</p>}
         {editable && tab === "config" && item.id === "trivy" && <TrivyAdmin />}
+        {editable && tab === "config" && item.id === "wordpress" && <WordPressAdmin />}
         {rules && rules.length > 0 && (
           <table className="rules-table">
             <thead>
