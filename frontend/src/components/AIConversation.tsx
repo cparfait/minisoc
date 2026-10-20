@@ -94,7 +94,7 @@ export default function AIConversation({ path, initialQuestion, placeholder, aut
           {status.local
             ? `Modèle local (${status.model}) : aucune donnée ne quitte votre réseau.`
             : status.pseudonymize
-              ? `Envoyé à ${status.model} : comptes, postes et IP internes pseudonymisés avant envoi.`
+              ? `Envoyé à ${status.model} : comptes, postes, IP internes et de la collectivité, domaines, SID et adresses MAC pseudonymisés avant envoi, puis rétablis dans la réponse.`
               : `Envoyé à ${status.model} sans pseudonymisation.`}{" "}
           L'IA conseille ; elle ne peut exécuter aucune action.
         </p>

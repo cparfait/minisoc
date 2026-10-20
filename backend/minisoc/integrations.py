@@ -269,6 +269,12 @@ CATALOG: tuple[Integration, ...] = (
                 ("low", "Faible"), ("medium", "Moyen (recommandé)"), ("high", "Élevé"))),
             FieldUI("ai_max_tokens", "Longueur maximale de réponse (jetons)", "int"),
             FieldUI("ai_pseudonymize", "Pseudonymiser avant envoi hors du réseau (RGPD)", "bool"),
+            FieldUI("ai_org_networks", "IP publiques de la collectivité (pseudonymisées)", "list",
+                    "Adresses ou plages publiques de vos sites (sorties Internet, services exposés). "
+                    "Les IP des attaquants restent visibles."),
+            FieldUI("ai_internal_domains", "Domaines internes (pseudonymisés)", "list",
+                    "Ex. mairie.local, ville.fr. Le domaine de l'annuaire LDAP et les suffixes .local, .lan, "
+                    ".intra, .corp sont déjà pris en compte."),
         ),
         test="ai",
         setup="Ajouter un fournisseur et sa clé, choisir le modèle dans la liste lue chez le fournisseur, puis Tester.",

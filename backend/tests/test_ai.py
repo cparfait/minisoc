@@ -1,5 +1,6 @@
 """Assistant IA : pseudonymisation, restitution en flux, contexte non fiable, appel Claude simulé (httpx2)."""
 
+import ipaddress
 import json
 
 import anthropic
@@ -9,7 +10,7 @@ import pytest
 from minisoc.ai import providers
 from minisoc.ai.context import _clean, event_context, wrap
 from minisoc.ai.providers import StreamResult, stream_chat
-from minisoc.ai.pseudonymize import Pseudonymizer, StreamRestorer
+from minisoc.ai.pseudonymize import Pseudonymizer, StreamRestorer, for_settings
 
 
 def test_pseudonymizer_replaces_people_hosts_and_internal_ips_only():
@@ -22,6 +23,44 @@ def test_pseudonymizer_replaces_people_hosts_and_internal_ips_only():
     text = p.text("Connexion de j.dupont depuis PC-COMPTA-02 (10.1.4.22), contact jean.dupont@mairie.fr")
     assert "dupont" not in text.lower() and "10.1.4.22" not in text and "PC-COMPTA" not in text
     assert p.restore("USER_1 sur HOST_1") == "j.dupont sur PC-COMPTA-02"
+
+
+def test_pseudonymizer_covers_paths_accounts_directory_dns_sid_mac_and_ipv6():
+    p = Pseudonymizer(org_networks=[ipaddress.ip_network("81.250.10.0/29")], domains=["mairie.local"])
+    raw = (r"MAIRIE\j.dupont a ouvert C:\Users\j.dupont\Desktop\paie.xlsx sur srv-fic01.mairie.local "
+           r"(CN=Jean Dupont,OU=RH,DC=mairie,DC=local, SID S-1-5-21-111-222-333-1104, MAC 00:1A:2B:3C:4D:5E, "
+           r"fd12:3456::42) ; sortie 81.250.10.3 vers 185.220.101.45 ; /home/mmartin ; NT AUTHORITY\SYSTEM")
+    out = p.text(raw)
+    for secret in ("dupont", "mairie", "srv-fic01", "Jean", "111-222-333", "00:1A", "fd12", "81.250.10.3", "mmartin"):
+        assert secret.lower() not in out.lower(), secret
+    assert "185.220.101.45" in out  # IP d'attaquant conservée
+    assert r"NT AUTHORITY\SYSTEM" in out and "S-1-5-21-SID_1-1104" in out and "OU=RH" in out
+    assert r"DOMAIN_1\USER_1" in out and r"C:\Users\USER_1\Desktop" in out  # même compte, même jeton
+    assert "HOST_1.DOMAIN_1.local" in out and "DC=DOMAIN_1,DC=local" in out
+    assert "IP_ORG_1" in out and "IP_INT_1" in out and "MAC_1" in out and "NAME_1" in out
+    assert p.restore(out).lower() == raw.lower()  # domaines rétablis en minuscules
+
+
+def test_pseudonymizer_leaves_ordinary_text_alone():
+    p = Pseudonymizer()
+    text = r"Le 03/10 à 12:30:45, HKLM\SOFTWARE\Microsoft modifié ; voir www.cert.ssi.gouv.fr, version 10.0.19045."
+    assert p.text(text) == text
+
+
+def test_pseudonymizer_settings_derive_internal_domains():
+    p = for_settings({"ai_org_networks": ["81.250.10.0/29"], "ai_internal_domains": "ville.fr",
+                      "ldap_base_dn": "DC=mairie,DC=local", "ldap_url": "ldaps://dc01.ad.mairie.fr:636"}, enabled=True)
+    assert set(p.domains) == {"ville.fr", "mairie.local", "ad.mairie.fr"}
+    assert p.ip("81.250.10.6") == "IP_ORG_1"
+    assert p.text("www.ville.fr") == "HOST_1.DOMAIN_1.fr"
+
+
+def test_stream_restorer_handles_new_token_kinds_split_across_chunks():
+    p = Pseudonymizer(domains=["mairie.local"])
+    sent = p.text(r"MAIRIE\jdupont sur pc01.mairie.local")
+    r = StreamRestorer(p)
+    chunks = [sent[:3], sent[3:9], sent[9:17], sent[17:]]
+    assert "".join(r.feed(c) for c in chunks) + r.flush() == r"mairie\jdupont sur pc01.mairie.local"
 
 
 def test_disabled_pseudonymizer_is_transparent():
