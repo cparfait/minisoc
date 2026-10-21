@@ -142,3 +142,21 @@ async def test_trivy_retired_on_existing_install():
     assert (alert.status, alert.notify_pending) == ("resolved", False) and session.committed
     assert any("Trivy a été retiré" in (h.detail or "") for h in session.added)
 
+
+async def test_wordpress_alerts_renumbered_from_uc63():
+    from sqlalchemy.dialects import postgresql
+
+    from minisoc.models import Alert
+
+    class Session(TrivySession):
+        async def scalars(self, query):
+            self.executed.append(str(query.compile(dialect=postgresql.dialect())))
+            return await super().scalars(query)
+
+    alert = Alert(id=9, rule_id="UC-63", status="resolved", modules=["wordpress"])
+    session = Session([alert])
+    assert await upgrade.renumber_wordpress_alerts(session) == 1
+    assert "alerts.modules @>" in session.executed[0]  # alertes du disque (UC-63) laissées telles quelles
+    assert alert.rule_id == "UC-64" and alert.status == "resolved" and session.committed
+    assert any("renumérotée UC-64" in (h.detail or "") for h in session.added)
+    assert await upgrade.renumber_wordpress_alerts(Session([])) == 0

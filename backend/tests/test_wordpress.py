@@ -1,4 +1,4 @@
-"""WordPress : inventaire (API REST ou détection publique), mises à jour, failles WPScan, alerte UC-63."""
+"""WordPress : inventaire (API REST ou détection publique), mises à jour, failles WPScan, alerte UC-64."""
 
 import json
 from datetime import datetime, timedelta, timezone
@@ -170,7 +170,7 @@ async def test_authenticated_inventory_updates_and_vulnerabilities(patched):
     assert (event.module, event.action, event.host_name, event.severity) == (
         "wordpress", "vulnerable_component", "www.mairie.fr", 4)
     assert "CVE-2023-6449" in event.threat_name and "Contact Form 7 5.8 → 5.8.4" in event.message
-    assert {r.id for r in RULES.match(event)} == {"UC-63"}
+    assert {r.id for r in RULES.match(event)} == {"UC-64"}
 
     # Inventaire suivant identique : aucune nouvelle alerte ; les réponses WPScan viennent du cache
     redis.stream.clear()

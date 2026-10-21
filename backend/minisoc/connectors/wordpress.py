@@ -8,7 +8,7 @@ Chaque jour (ou sur « Analyser maintenant »), le worker interroge chaque site 
 La version du cœur vient de la balise « generator » (page d'accueil, flux RSS). Les dernières versions publiées
 sont lues sur api.wordpress.org (extensions et thèmes de l'annuaire officiel ; une extension payante n'y figure
 pas). Avec un jeton WPScan (offre gratuite : 25 requêtes par jour), les failles connues des versions installées
-sont ajoutées ; une faille nouvelle donne une alerte (UC-63). Rien n'est modifié sur les sites.
+sont ajoutées ; une faille nouvelle donne une alerte (UC-64). Rien n'est modifié sur les sites.
 """
 
 from __future__ import annotations

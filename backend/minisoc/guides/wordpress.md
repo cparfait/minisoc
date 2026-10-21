@@ -3,7 +3,7 @@
 Chaque jour, le Mini-SOC fait l'inventaire de chaque site WordPress déclaré : version de WordPress, extensions,
 thèmes, et la dernière version publiée de chacun (api.wordpress.org). La page **Vulnérabilités** affiche, site par
 site, ce qu'il faut mettre à jour. Avec un jeton **WPScan**, les failles connues des versions installées sont
-ajoutées : une faille nouvelle donne l'alerte **UC-63**.
+ajoutées : une faille nouvelle donne l'alerte **UC-64**.
 
 Tout se fait en **lecture seule** et en HTTPS sortant : le Mini-SOC ne modifie rien sur les sites et ne lance
 aucune attaque (pas d'essai de mots de passe, pas de recherche de fichiers cachés).

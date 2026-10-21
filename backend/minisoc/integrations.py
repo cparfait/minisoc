@@ -358,7 +358,7 @@ CATALOG: tuple[Integration, ...] = (
         silence_minutes=3 * 24 * 60,
         description="Inventaire quotidien des sites WordPress : version du cœur, extensions et thèmes, mises à jour "
                     "disponibles (api.wordpress.org) et, avec un jeton WPScan, failles connues des versions "
-                    "installées (UC-63). Liste par site sur la page Vulnérabilités. Lecture seule, HTTPS sortant.",
+                    "installées (UC-64). Liste par site sur la page Vulnérabilités. Lecture seule, HTTPS sortant.",
         fields=(
             FieldUI("wordpress_wpscan_token", "Jeton d'API WPScan (failles connues)", "secret",
                     help="Facultatif. Compte gratuit sur wpscan.com › Profil › API Token. Sans jeton : mises à "

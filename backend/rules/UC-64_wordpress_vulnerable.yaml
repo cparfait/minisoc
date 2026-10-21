@@ -1,4 +1,4 @@
-id: UC-63
+id: UC-64
 name: Composant WordPress vulnérable sur un site de la collectivité
 type: match
 severity: from_event

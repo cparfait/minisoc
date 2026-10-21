@@ -95,6 +95,26 @@ async def retire_unreliable_antivirus(session: AsyncSession) -> int:
     return closed
 
 
+async def renumber_wordpress_alerts(session: AsyncSession) -> int:
+    """La règle WordPress est née sous UC-63 (20/10/2026), numéro déjà pris par l'espace disque : renumérotée UC-64.
+    Ses alertes créées sous UC-63 (module « wordpress ») passent en UC-64, quel que soit leur statut : elles ne sont
+    plus clôturées par le relevé des disques et la déduplication se poursuit. Une fois fait, ne trouve plus rien."""
+    from minisoc.alerts import SYSTEM
+    from minisoc.models import Alert, AlertHistory
+
+    rows = (await session.scalars(select(Alert).where(
+        Alert.rule_id == "UC-63", Alert.modules.contains(["wordpress"]),
+    ))).all()
+    for alert in rows:
+        alert.rule_id = "UC-64"
+        session.add(AlertHistory(alert_id=alert.id, actor=SYSTEM, action="comment", detail=(
+            "Règle WordPress renumérotée UC-64 (UC-63 est l'espace des disques de la VM). Reprise automatique.")))
+    if rows:
+        await session.commit()
+        log.info("mise à jour : %d alerte(s) WordPress renumérotée(s) de UC-63 en UC-64", len(rows))
+    return len(rows)
+
+
 def _server_alert(alert) -> bool:
     from minisoc.assets import SERVER_NAME
 

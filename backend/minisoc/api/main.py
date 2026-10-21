@@ -46,6 +46,7 @@ from minisoc.rules.engine import RuleSet
 from minisoc.upgrade import (
     categorize_rule_alerts,
     keep_working_integrations,
+    renumber_wordpress_alerts,
     retire_trivy,
     retire_unreliable_antivirus,
 )
@@ -74,6 +75,7 @@ async def lifespan(app: FastAPI):
     async with sessionmaker()() as session:
         app.state.rules = RuleSet(await load_all(session, settings.rules_dir))
         await keep_working_integrations(session, app.state.redis)  # mise à jour d'une installation existante
+        await renumber_wordpress_alerts(session)
         await categorize_rule_alerts(session, app.state.rules)
         await retire_unreliable_antivirus(session)
         await retire_trivy(session, app.state.redis)
