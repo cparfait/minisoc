@@ -25,7 +25,7 @@ RULES = RuleSet(load_rules(RULES_DIR))
 
 def test_hygiene_rules_are_categorized():
     by_id = RULES.by_id
-    for rule_id in ("UC-11", "UC-15", "UC-48", "UC-49", "UC-50", "UC-52", "UC-53"):
+    for rule_id in ("UC-11", "UC-15", "UC-48", "UC-49", "UC-50"):
         assert by_id[rule_id].category == "hygiene", rule_id
     assert by_id["UC-22"].category == "threat" and by_id["NATIVE"].category == "threat"
     with pytest.raises(RuleError):

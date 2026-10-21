@@ -67,7 +67,6 @@ from minisoc.settings_store import store as settings_store
 from minisoc.siem_jobs import ArchiveJob, AssetJob, IocHunter, RiskJob
 from minisoc.source_sync import SourceStatusSync
 from minisoc.threat_feeds import KevIndex, refresh_certfr, refresh_kev
-from minisoc.trivy import TrivyLocalJob
 
 log = logging.getLogger("minisoc.worker")
 
@@ -573,7 +572,6 @@ async def main() -> None:
     vectra = VectraConnector(sessionmaker(), redis)
     ogo = OgoConnector(sessionmaker(), redis)
     geoip_updater = GeoIPUpdater(sessionmaker(), redis, settings.geoip_dir)
-    trivy_local = TrivyLocalJob(sessionmaker(), redis, settings.trivy_dir)
     wordpress_job = WordPressJob(sessionmaker(), redis)
     gravityzone = GravityZoneConnector(sessionmaker(), redis)
     crowdsec = CrowdSecConnector(sessionmaker(), redis)
@@ -609,7 +607,6 @@ async def main() -> None:
         supervise("vectra", vectra.run),
         supervise("ogo", ogo.run),
         supervise("bases GeoIP", geoip_updater.run),
-        supervise("trivy (VM)", trivy_local.run),
         supervise("wordpress", wordpress_job.run),
         supervise("gravityzone", gravityzone.run),
         supervise("synchro des statuts", status_sync.run),

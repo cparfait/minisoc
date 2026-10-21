@@ -28,8 +28,6 @@ class Settings(BaseSettings):
 
     # Enrichissement : bases GeoIP au format MMDB (MaxMind GeoLite2-City / -Country / -ASN, ou DB-IP Lite)
     geoip_dir: str = "/app/data/geoip"
-    # Trivy : dossier d'échange avec le service minisoc-trivy de la VM (rapport, état, demande d'analyse)
-    trivy_dir: str = "/var/lib/minisoc/trivy"
     # Espace des disques de la VM : relevé déposé par le service minisoc-disk (lecture seule)
     disk_dir: str = "/var/lib/minisoc/disques"
 

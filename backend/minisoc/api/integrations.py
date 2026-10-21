@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from minisoc import audit, bus, geoip_update, trivy
+from minisoc import audit, bus, geoip_update
 from minisoc.ai.providers import configured as ai_configured
 from minisoc.api import admin, ai, response
 from minisoc.api.deps import ADMIN, ANY_USER, client_ip, get_db
@@ -18,7 +18,7 @@ from minisoc.integrations import BY_ID, CATALOG, DROPPED_KEY, GEOIP_STATUS_KEY, 
 from minisoc.models import User
 from minisoc.settings_store import FIELDS, SettingsError
 from minisoc.settings_store import store as settings_store
-from minisoc.threat_feeds import KEV_KEY, KEV_META
+from minisoc.threat_feeds import KEV_META
 
 router = APIRouter(tags=["integrations"])
 
@@ -36,22 +36,7 @@ async def _extras(redis, cfg: dict) -> dict[str, dict]:
         geo_detail = "Renseigner l'identifiant et la clé MaxMind (Configurer)"
     else:
         geo_detail = "Téléchargement des bases en cours (5 minutes au plus)"
-    scans = trivy.load_states(await redis.hgetall(trivy.STATE_KEY))
-    local = scans.get(trivy.LOCAL)
-    service = json.loads(await redis.get(trivy.LOCAL_STATUS_KEY) or "{}").get("service") or {}
-    if service.get("state") == "error":
-        trivy_detail = "Analyse de la VM en échec : " + (service.get("message") or "sudo journalctl -u minisoc-trivy")
-    elif local:
-        c = trivy.counts(local, set(await redis.hkeys(KEV_KEY)))
-        trivy_detail = (f"VM : {c['total']} CVE dont {c['critical_fixable']} critique(s) corrigeable(s), "
-                        f"{c['kev']} KEV (analyse du {local['scanned_at'][:10]})")
-    else:
-        trivy_detail = "Première analyse de la VM en attente (service minisoc-trivy)"
-    others = len(scans) - (1 if local else 0)
-    if others:
-        trivy_detail += f" · {others} serveur(s)"
     return {
-        "trivy": {"detail": trivy_detail},
         "wordpress": {"detail": await _wordpress_detail(redis, cfg)},
         "geoip": {"ready": bool(files), "detail": geo_detail},
         "veille": {"ready": bool(kev.get("updated")),

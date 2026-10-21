@@ -18,7 +18,6 @@ from minisoc.parsers.m365 import parse_m365
 from minisoc.parsers.ninjaone import parse_ninjaone
 from minisoc.parsers.ogo import parse_ogo
 from minisoc.parsers.sophos import looks_like_sophos, parse_sophos
-from minisoc.parsers.trivy import parse_trivy
 from minisoc.parsers.varonis import parse_varonis
 from minisoc.parsers.vectra import parse_vectra
 from minisoc.parsers.windows import looks_like_windows, parse_windows
@@ -77,8 +76,6 @@ def parse_message(kind: str, payload: str, *, bitdefender_url: str = "", harfang
             return parse_vectra(data, received)
         if kind == "ogo":
             return parse_ogo(data, received)
-        if kind == "trivy":
-            return parse_trivy(data, received)
         if kind == "wordpress":
             return parse_wordpress(data, received)
         raise ValueError(f"type de message inconnu : {kind}")

@@ -353,8 +353,6 @@ setenv MINISOC_PUBLIC_URL "https://$fqdn"
 setenv WEB_BIND "$vm_ip"
 setenv SYSLOG_BIND "$vm_ip"
 setenv COMPOSE_PROFILES syslog-tls
-setenv TRIVY_DIR /var/lib/minisoc/trivy
-install -d -m 0750 /var/lib/minisoc/trivy
 setenv DISK_DIR /var/lib/minisoc/disques
 install -d -m 0755 /var/lib/minisoc/disques
 [ -f data/syslog-tls/server.crt ] || sh scripts/syslog_cert.sh "$fqdn" "$vm_ip"
@@ -385,7 +383,6 @@ LAN_IF="$iface"
 # --- Entrant ---
 ADMINS="$PRIVATE"
 WALL=""
-TRIVY=""
 SYSLOG_TCP="$PRIVATE"
 SYSLOG_TLS="$PRIVATE"
 SYSLOG_UDP=""
@@ -437,16 +434,6 @@ else
   fi
 fi
 warn "phrase de passe des sauvegardes (/etc/minisoc/backup.pass) et clé maître (MINISOC_MASTER_KEY de /opt/minisoc/.env) à copier dans le coffre-fort de la DSI"
-
-# ---------- Analyse Trivy de la VM (deploy/trivy) : chaque semaine, après les mises à jour, à la demande ----------
-install -m 0750 /opt/minisoc/deploy/trivy/minisoc-trivy.sh /usr/local/sbin/minisoc-trivy
-for u in service timer path; do install -m 0644 "/opt/minisoc/deploy/trivy/minisoc-trivy.$u" /etc/systemd/system/; done
-systemctl daemon-reload
-systemctl enable minisoc-trivy.timer minisoc-trivy.path
-if [ "$APP_OK" = 1 ]; then
-  systemctl start minisoc-trivy.timer minisoc-trivy.path
-  systemctl start --no-block minisoc-trivy.service   # première analyse, en tâche de fond
-fi
 
 # ---------- Espace des disques de la VM (deploy/disk) : relevé toutes les 5 minutes, alerte UC-63 ----------
 install -m 0750 /opt/minisoc/deploy/disk/minisoc-disk.sh /usr/local/sbin/minisoc-disk

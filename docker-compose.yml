@@ -90,8 +90,6 @@ services:
       - geoip:/app/data/geoip
       # La liste remplace celle du modèle commun : le volume des archives est donc repris ici
       - archives:/var/lib/minisoc/archives
-      # Échange avec le service minisoc-trivy de la VM (rapports, état, demande d'analyse) : dossier de l'hôte
-      - ${TRIVY_DIR:-./data/trivy}:/var/lib/minisoc/trivy
       # Espace des disques de la VM, relevé par le service minisoc-disk de l'hôte (deploy/disk) : lecture seule
       - ${DISK_DIR:-./data/disques}:/var/lib/minisoc/disques:ro
 
@@ -147,13 +145,6 @@ services:
       - "127.0.0.1:5514:514/tcp"
     networks: [backend]
 
-  # Trivy : jamais lancé par Compose, mais par le service minisoc-trivy de la VM (deploy/trivy), chaque semaine ou à
-  # la demande ; image corrigée et reconstruite à chaque mise à jour comme les autres (profil « outils »)
-  trivy:
-    build: { <<: *patched, args: { BASE: "aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222" } }
-    image: minisoc-trivy:0.76.0
-    profiles: ["outils"]
-
   # Interface web + reverse proxy HTTPS (seul point d'entrée HTTP)
   web:
     build:
@@ -166,10 +157,6 @@ services:
       MINISOC_TLS: ${MINISOC_TLS:-internal}
       # Adresse IP de l'interface : https://<IP> renvoie vers MINISOC_HOSTNAME
       MINISOC_IP: ${WEB_BIND:-127.0.0.1}
-      # Serveurs Trivy limités à l'envoi de leurs rapports, sauf adresses d'administration ou d'écran mural
-      # (deploy/caddy/Caddyfile) : listes du pare-feu recopiées dans .env par sudo minisoc-setup
-      MINISOC_TRIVY_IPS: ${MINISOC_TRIVY_IPS:-}
-      MINISOC_WEB_IPS: ${MINISOC_WEB_IPS:-}
     ports:
       - "${WEB_BIND:-0.0.0.0}:443:443"
       - "${WEB_BIND:-0.0.0.0}:80:80"

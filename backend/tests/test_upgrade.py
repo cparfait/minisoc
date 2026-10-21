@@ -85,3 +85,60 @@ async def test_dashboard_flags_silent_sources_like_the_integration_card():
     assert "harfanglab" not in items  # intégration désactivée : absente du bandeau
     # Sans réglages (ancien appel) : seules les sources de la règle UC-16 ont un délai
     assert {s["module"]: s["status"] for s in await sources_status(redis, [])}["sophos_xgs"] == "ok"
+
+
+class TrivyRedis:
+    """Redis d'une installation qui avait Trivy : rapports, source « trivy » vue et événements ignorés."""
+
+    def __init__(self):
+        self.keys = {"minisoc:trivy:sources", "minisoc:trivy:local", "minisoc:sources:last_seen"}
+        self.hashes = {"minisoc:sources:last_seen": {"trivy": "x", "m365": "y"},
+                       "minisoc:sources:dropped": {"trivy": "3"}}
+
+    async def scan_iter(self, match):
+        for key in sorted(self.keys):
+            if key.startswith(match.rstrip("*")):
+                yield key
+
+    async def delete(self, *keys):
+        self.keys -= set(keys)
+
+    async def hdel(self, key, field):
+        self.hashes.get(key, {}).pop(field, None)
+
+
+class TrivySession:
+    def __init__(self, alerts):
+        self.alerts, self.added, self.executed, self.committed = alerts, [], [], False
+
+    async def execute(self, statement):
+        self.executed.append(str(statement))
+
+    async def scalars(self, _query):
+        alerts = self.alerts
+
+        class Result:
+            def all(self):
+                return alerts
+
+        return Result()
+
+    def add(self, row):
+        self.added.append(row)
+
+    async def commit(self):
+        self.committed = True
+
+
+async def test_trivy_retired_on_existing_install():
+    from minisoc.models import Alert
+
+    alert = Alert(id=7, rule_id="UC-52", status="new", notify_pending=True)
+    redis, session = TrivyRedis(), TrivySession([alert])
+    assert await upgrade.retire_trivy(session, redis) == 1
+    assert redis.keys == {"minisoc:sources:last_seen"}  # rapports Trivy effacés, le reste intact
+    assert redis.hashes["minisoc:sources:last_seen"] == {"m365": "y"} and redis.hashes["minisoc:sources:dropped"] == {}
+    assert any("DELETE FROM settings" in sql for sql in session.executed)
+    assert (alert.status, alert.notify_pending) == ("resolved", False) and session.committed
+    assert any("Trivy a été retiré" in (h.detail or "") for h in session.added)
+

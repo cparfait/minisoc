@@ -523,8 +523,8 @@ a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
 .coverage-error { color: #fdba74; margin: 4px 0; }
 .risk-tools { margin: 6px 0; }
 
-/* Trivy : fiche de l'intégration (analyse de la VM, jetons des serveurs) */
-.trivy-admin { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 8px; }
-.trivy-admin h3 { margin: 12px 0 4px; font-size: 14px; }
+/* Bloc complémentaire d'une fiche d'intégration (ex. WordPress : sites et jetons) */
+.integration-admin { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 8px; }
+.integration-admin h3 { margin: 12px 0 4px; font-size: 14px; }
 .token-once { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--warn, #c90); border-radius: 6px; }
 .token-once code { display: block; margin: 4px 0; word-break: break-all; user-select: all; }

@@ -100,3 +100,39 @@ def _server_alert(alert) -> bool:
 
     host = str(((alert.details or {}).get("sample") or {}).get("host.name") or "")
     return bool(SERVER_NAME.match(host))
+
+
+TRIVY_RULES = ("UC-52", "UC-53")
+TRIVY_SETTINGS = ("src_trivy_enabled", "trivy_alert_high")
+
+
+async def retire_trivy(session: AsyncSession, redis: aioredis.Redis) -> int:
+    """Trivy retiré du Mini-SOC (21/10/2026) : efface ses rapports gardés dans Redis, la source « trivy » de l'état
+    des sources et ses réglages, et clôture avec une explication les alertes ouvertes des règles UC-52 et UC-53.
+    Une fois fait, ne trouve plus rien. Les vulnérabilités du parc restent suivies par Cyberwatch."""
+    from sqlalchemy import delete
+
+    from minisoc.alerts import SYSTEM
+    from minisoc.integrations import DROPPED_KEY
+    from minisoc.models import OPEN_STATUSES, Alert, AlertHistory
+
+    keys = [k async for k in redis.scan_iter(match="minisoc:trivy:*")]
+    if keys:
+        await redis.delete(*keys)
+    await redis.hdel(bus.SOURCES_KEY, "trivy")
+    await redis.hdel(DROPPED_KEY, "trivy")
+    await session.execute(delete(Setting).where(Setting.key.in_(TRIVY_SETTINGS)))
+    rows = (await session.scalars(select(Alert).where(
+        Alert.rule_id.in_(TRIVY_RULES), Alert.status.in_(OPEN_STATUSES),
+    ))).all()
+    for alert in rows:
+        alert.status, alert.notify_pending = "resolved", False
+        session.add(AlertHistory(alert_id=alert.id, actor=SYSTEM, action="status", detail="resolved"))
+        session.add(AlertHistory(alert_id=alert.id, actor=SYSTEM, action="comment", detail=(
+            "Trivy a été retiré du Mini-SOC : cette faille n'est plus suivie ici. Les vulnérabilités du parc "
+            "restent suivies par Cyberwatch. Clôture automatique.")))
+    await session.commit()
+    if rows or keys:
+        log.info("mise à jour : Trivy retiré (%d clé(s) Redis effacée(s), %d alerte(s) ouverte(s) clôturée(s))",
+                 len(keys), len(rows))
+    return len(rows)

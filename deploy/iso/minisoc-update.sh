@@ -276,14 +276,23 @@ if [ -f /etc/fail2ban/jail.d/minisoc.local ] && ! grep -q banaction_allports /et
 fi
 /usr/local/sbin/minisoc-sshd-config
 if sshd -t; then systemctl reload ssh; else echo "${R}Configuration SSH refusée par sshd -t : SSH non rechargé.${N}"; fi
-# Analyse Trivy de la VM (deploy/trivy) : service, minuterie hebdomadaire, demande depuis l'interface
-install -m 0750 "$APP/deploy/trivy/minisoc-trivy.sh" /usr/local/sbin/minisoc-trivy
-for u in service timer path; do install -m 0644 "$APP/deploy/trivy/minisoc-trivy.$u" /etc/systemd/system/; done
-install -d -m 0750 /var/lib/minisoc/trivy
-grep -q '^TRIVY_DIR=' "$APP/.env" || echo 'TRIVY_DIR=/var/lib/minisoc/trivy' >> "$APP/.env"
-systemctl daemon-reload
-systemctl enable --now minisoc-trivy.timer minisoc-trivy.path >/dev/null 2>&1 \
-  || echo "${Y}Minuterie de l'analyse Trivy non activée : sudo systemctl enable --now minisoc-trivy.timer minisoc-trivy.path${N}"
+# Trivy retiré du Mini-SOC (21/10/2026) : service, minuterie, dossier d'échange et variables supprimés ; liste TRIVY
+# retirée du pare-feu (relancé plus bas : le 443 n'est plus ouvert à ces serveurs). Image et cache : après le
+# redémarrage. Sans effet sur une VM qui ne l'a jamais eu ou déjà nettoyée.
+if [ -e /etc/systemd/system/minisoc-trivy.service ] || [ -e /usr/local/sbin/minisoc-trivy ]; then
+  systemctl disable --now minisoc-trivy.timer minisoc-trivy.path minisoc-trivy.service >/dev/null 2>&1 || true
+  rm -f /usr/local/sbin/minisoc-trivy /etc/systemd/system/minisoc-trivy.service \
+    /etc/systemd/system/minisoc-trivy.timer /etc/systemd/system/minisoc-trivy.path
+  systemctl daemon-reload
+  echo "Trivy retiré : service minisoc-trivy et sa minuterie supprimés."
+fi
+rm -rf /var/lib/minisoc/trivy
+sed -i '/^TRIVY_DIR=/d; /^MINISOC_TRIVY_IPS=/d; /^MINISOC_WEB_IPS=/d' "$APP/.env"
+if grep -q '^TRIVY=' /etc/minisoc/firewall.conf 2>/dev/null; then
+  trivy_ips=$(. /etc/minisoc/firewall.conf; echo "${TRIVY:-}")
+  sed -i '/^TRIVY=/d' /etc/minisoc/firewall.conf
+  [ -z "$trivy_ips" ] || echo "${Y}Serveurs Trivy retirés du pare-feu (443 fermé) : $trivy_ips${N}"
+fi
 # Espace des disques de la VM (deploy/disk) : relevé toutes les 5 minutes, lu par le worker (alerte UC-63)
 install -m 0750 "$APP/deploy/disk/minisoc-disk.sh" /usr/local/sbin/minisoc-disk
 for u in service timer; do install -m 0644 "$APP/deploy/disk/minisoc-disk.$u" /etc/systemd/system/; done
@@ -445,10 +454,6 @@ recreate_vector_with_relay() {
 
 step "redémarrage"
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)  # contrôle de la réception syslog : journaux de l'API depuis ce moment
-# Listes du pare-feu reprises par l'interface web (serveurs Trivy limités à l'envoi de leurs rapports), recopiées dans
-# .env depuis /etc/minisoc/firewall.conf : aussi pour une VM paramétrée avant que l'interface web ne les lise
-/usr/local/sbin/minisoc-setup --acces-web \
-  || echo "${Y}Accès web des serveurs Trivy non recopié : sudo minisoc-setup --acces-web${N}"
 # Tout sauf Vector d'abord (pendant le redémarrage de l'API, Vector garde les journaux dans son tampon disque), puis
 # Vector, avec le relais syslog si son image a changé
 mapfile -t others < <(docker compose config --services | grep -vx vector)
@@ -503,8 +508,12 @@ elif [ "$pending" = 0 ]; then
   rm -f "$BUNDLE" "$BUNDLE.sha256"
   docker image prune -f >/dev/null 2>&1 || true
   docker builder prune -af >/dev/null 2>&1 || true
-  # Images reconstruites : nouvelle analyse Trivy en tâche de fond (Intégrations › Trivy, page Vulnérabilités)
-  systemctl start --no-block minisoc-trivy.service && echo "Analyse Trivy des nouvelles images lancée en tâche de fond."
+  # Trivy retiré : son image (jamais lancée par Compose, donc ignorée par --remove-orphans), son cache et son dossier
+  # de travail sur le disque de Docker
+  docker images --format '{{.Repository}}:{{.Tag}}' | grep '^minisoc-trivy:' | xargs -r docker image rm >/dev/null 2>&1 || true
+  docker volume rm minisoc-trivy-cache >/dev/null 2>&1 || true
+  docker_root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || true)
+  [ -z "$docker_root" ] || rm -rf "$docker_root/minisoc-trivy"
 else
   echo "${Y}Version $NEW installée, mais des services ne sont pas « healthy » : sudo docker compose -f $APP/docker-compose.yml ps${N}"
 fi

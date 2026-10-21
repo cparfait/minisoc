@@ -11,7 +11,7 @@ FROM caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f
 
 # Caddy recompilé à l'identique (même version que l'image officielle) avec le dernier Go et la dernière version de
 # golang.org/x/net (relevés par scripts/update_pins.sh) : le binaire publié garde le Go et les dépendances du jour de
-# sa sortie, et leurs CVE corrigées depuis (relevées par Trivy et Cyberwatch) jusqu'à la version suivante de Caddy.
+# sa sortie, et leurs CVE corrigées depuis (relevées par Cyberwatch) jusqu'à la version suivante de Caddy.
 FROM golang:alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS caddy
 ARG XNET_VERSION=v0.61.0
 COPY --from=caddy-officiel /usr/bin/caddy /tmp/caddy-officiel

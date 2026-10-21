@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from minisoc import coverage, identity, trivy
+from minisoc import coverage, identity
 from minisoc import cve as cve_search
 from minisoc.api.deps import ANALYST, ANY_USER, get_db
 from minisoc.assets import INDEX, key_for
@@ -91,24 +91,16 @@ async def cve_fleet(
     limit: int = Query(100, ge=1, le=500),
     _: User = Depends(ANY_USER),
 ):
-    """CVE présentes sur le parc (Cyberwatch, et Trivy pour les images et serveurs), les failles KEV d'abord."""
+    """CVE présentes sur le parc (Cyberwatch), les failles KEV d'abord."""
     redis = request.app.state.redis
     states = cyberwatch.load_states(await redis.hgetall(cyberwatch.STATE_KEY))
-    scans = trivy.load_states(await redis.hgetall(trivy.STATE_KEY))
     kev = set(await redis.hkeys(KEV_KEY))
-    rows = cve_search.fleet({**states, **{f"trivy:{k}": v for k, v in scans.items()}}, kev, limit=100000)
+    rows = cve_search.fleet(states, kev, limit=100000)
     total = len(rows)
     if kev_only:
         rows = [r for r in rows if r["kev"]]
     at = await redis.get(cyberwatch.STATE_AT_KEY)
-    times = [float(at)] if at else []
-    for st in scans.values():
-        try:
-            times.append(datetime.fromisoformat(st["received_at"]).timestamp())
-        except (KeyError, TypeError, ValueError):
-            continue
-    return {"items": rows[:limit], "total": total, "assets": len(states) + len(scans),
-            "sources": {"cyberwatch": len(states), "trivy": len(scans)}, "at": max(times) if times else None}
+    return {"items": rows[:limit], "total": total, "assets": len(states), "at": float(at) if at else None}
 
 
 @router.get("/cve/{code}")
@@ -154,7 +146,6 @@ async def cve_detail(
         "certfr": certfr,
         "cyberwatch": lookup,
         "machines": machines,
-        "trivy": trivy.by_cve(trivy.load_states(await state.redis.hgetall(trivy.STATE_KEY)), code),
         "counts": {s: sum(1 for m in machines if m["status"] == s) for s in ("vulnerable", "ignored", "fixed")},
         "detections": await cve_search.detections(state.store, code),
         "alerts": [

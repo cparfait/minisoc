@@ -30,7 +30,6 @@ from minisoc.api import (
     reports,
     rules_admin,
     search,
-    trivy,
     wall,
     wordpress,
 )
@@ -44,7 +43,12 @@ from minisoc.events_store import EventStore
 from minisoc.identity import IDENTITIES
 from minisoc.rules.custom import load_all
 from minisoc.rules.engine import RuleSet
-from minisoc.upgrade import categorize_rule_alerts, keep_working_integrations, retire_unreliable_antivirus
+from minisoc.upgrade import (
+    categorize_rule_alerts,
+    keep_working_integrations,
+    retire_trivy,
+    retire_unreliable_antivirus,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -72,6 +76,7 @@ async def lifespan(app: FastAPI):
         await keep_working_integrations(session, app.state.redis)  # mise à jour d'une installation existante
         await categorize_rule_alerts(session, app.state.rules)
         await retire_unreliable_antivirus(session)
+        await retire_trivy(session, app.state.redis)
     identities = asyncio.create_task(_refresh_identities(app.state.redis))
     yield
     identities.cancel()
@@ -142,6 +147,6 @@ async def health_full(request: Request):
 
 
 for module in (auth, alerts, data, exceptions, ingest, wall, admin, ai, response_api, integrations_api, accounts_api,
-               incidents, reports, detections, search, rules_admin, assets_api, iocs, archives, posture_api, trivy,
-               ogo, analytics, wordpress):
+               incidents, reports, detections, search, rules_admin, assets_api, iocs, archives, posture_api, ogo,
+               analytics, wordpress):
     app.include_router(module.router)

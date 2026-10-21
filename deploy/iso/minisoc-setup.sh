@@ -3,8 +3,7 @@
 # Les réponses précédentes sont proposées par défaut ; rien n'est appliqué avant « Appliquer ».
 #   sudo minisoc-setup              menu
 #   sudo minisoc-setup --rollback   retour à la configuration précédente (lancé seul si non confirmée)
-#   sudo minisoc-setup --relire     firewall.conf modifié à la main : SSH, pare-feu et interface web réappliqués
-#   sudo minisoc-setup --acces-web  listes du pare-feu recopiées pour l'interface web seule (lancé par minisoc-update)
+#   sudo minisoc-setup --relire     firewall.conf modifié à la main : SSH et pare-feu réappliqués
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "À lancer avec sudo."; exit 1; }
 
@@ -25,45 +24,17 @@ apply_all() {
   systemctl restart minisoc-firewall
 }
 
-# Le pare-feu ouvre le 443 aux serveurs Trivy comme aux postes DSI ; Caddy (deploy/caddy/Caddyfile) ne laisse aux
-# serveurs Trivy que l'envoi de leurs rapports (POST /api/ingest/trivy), sauf adresse aussi déclarée en
-# administration ou en écran mural. Il reçoit les listes par .env : MINISOC_TRIVY_IPS = TRIVY, MINISOC_WEB_IPS =
-# ADMINS et WALL. Renvoie 1 si .env n'a pas changé.
-web_access_env() {
-  local env="$APP/.env" v val changed=1
-  [ -f "$env" ] && [ -f "$FW" ] || return 1
-  for v in MINISOC_TRIVY_IPS MINISOC_WEB_IPS; do
-    if [ "$v" = MINISOC_TRIVY_IPS ]; then val=$(. "$FW"; echo ${TRIVY:-}); else val=$(. "$FW"; echo ${ADMINS:-} ${WALL:-}); fi
-    [ "$(grep "^$v=" "$env" || true)" = "$v=$val" ] && continue
-    if grep -q "^$v=" "$env"; then sed -i "s|^$v=.*|$v=$val|" "$env"; else echo "$v=$val" >> "$env"; fi
-    changed=0
-  done
-  return $changed
-}
-# Puis conteneur web recréé s'il est en service : Caddy ne lit ses variables qu'au démarrage
-web_access() {
-  web_access_env || return 0
-  [ -n "$(cd "$APP" && docker compose ps -q --status running web 2>/dev/null)" ] || return 0
-  (cd "$APP" && docker compose up -d --no-deps web)
-}
-
 if [ "${1:-}" = "--rollback" ]; then
   for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS" /etc/minisoc/firewall-notes.conf; do
     if [ -f "$f.prev" ]; then cp -p "$f.prev" "$f"; fi
   done
   apply_all
-  web_access || logger -t minisoc-setup "retour arrière : conteneur web non recréé (accès des serveurs Trivy)"
   logger -t minisoc-setup "configuration non confirmée : retour à la configuration précédente"
-  exit 0
-fi
-if [ "${1:-}" = "--acces-web" ]; then
-  web_access
   exit 0
 fi
 if [ "${1:-}" = "--relire" ]; then
   apply_all
-  web_access
-  echo "SSH, pare-feu et interface web réappliqués depuis $FW."
+  echo "SSH et pare-feu réappliqués depuis $FW."
   exit 0
 fi
 
@@ -189,7 +160,7 @@ envset() { if grep -q "^$1=" "$APP/.env"; then sed -i "s|^$1=.*|$1=$2|" "$APP/.e
 # ---------- Listes d'adresses, chacune avec sa description ----------
 # Descriptions pour la DSI (le pare-feu ne les lit pas) : une ligne LISTE|adresse|description
 NOTES_FILE=/etc/minisoc/firewall-notes.conf
-NOTE_LISTS="ADMINS WALL TRIVY SYSLOG_TCP SYSLOG_TLS SYSLOG_UDP DNS NTP DCS SMTP XGS_API CROWDSEC OTHER_OUT"
+NOTE_LISTS="ADMINS WALL SYSLOG_TCP SYSLOG_TLS SYSLOG_UDP DNS NTP DCS SMTP XGS_API CROWDSEC OTHER_OUT"
 declare -A NOTES=()
 load_notes() {
   NOTES=()
@@ -318,7 +289,7 @@ edit_list() {
 
 # ---------- État courant ----------
 load_state() {
-  ADMINS="" WALL="" TRIVY="" SYSLOG_TCP="" SYSLOG_TLS="" SYSLOG_UDP="" BACKUP_SERVER="" DNS="" NTP="" LAN_OUT=""
+  ADMINS="" WALL="" SYSLOG_TCP="" SYSLOG_TLS="" SYSLOG_UDP="" BACKUP_SERVER="" DNS="" NTP="" LAN_OUT=""
   INTERNET_PORTS="443,8443" LAN_IF="" SSH_PORT="22"
   DCS="" SMTP="" XGS_API="" CROWDSEC="" OTHER_OUT=""
   . "$FW"
@@ -337,13 +308,12 @@ s_inbound() {
   local c
   while :; do
     c=$(wt --title "Accès entrants" --cancel-label "Retour" --menu \
-      "Adresses autorisées à joindre la VM, chacune avec sa description.\nEntrée : ouvrir une liste   Échap : revenir au menu" 14 78 6 \
+      "Adresses autorisées à joindre la VM, chacune avec sa description.\nEntrée : ouvrir une liste   Échap : revenir au menu" 13 78 5 \
       "1" "Administration   $(count ADMINS) adr.  SSH, web, ping (postes DSI)" \
       "2" "Écran mural      $(count WALL) adr.  interface web seule" \
       "3" "Syslog 514/TCP   $(count SYSLOG_TCP) adr.  pare-feu, Vectra, Varonis sur site" \
       "4" "Syslog 6514/TLS  $(count SYSLOG_TLS) adr.  NXLog (DC, serveurs de fichiers)" \
-      "5" "Syslog 514/UDP   $(count SYSLOG_UDP) adr.  équipement sans TCP" \
-      "6" "Serveurs Trivy   $(count TRIVY) adr.  envoi des rapports seul (443)") || return 0
+      "5" "Syslog 514/UDP   $(count SYSLOG_UDP) adr.  équipement sans TCP") || return 0
     case $c in
       1) edit_list ADMINS "Accès entrants > administration" \
            "Postes DSI autorisés à administrer (SSH, interface web, ping).\nLes autres adresses n'ont aucune réponse, pas même au ping.\n2 ou 3 postes, avec réservation DHCP." addrs 1 ;;
@@ -354,8 +324,6 @@ s_inbound() {
            "Sources syslog chiffré (TLS), 6514/TCP : contrôleurs de domaine et serveurs de fichiers (NXLog)." addrs ;;
       5) edit_list SYSLOG_UDP "Accès entrants > syslog 514/UDP" \
            "Sources syslog en UDP : seulement pour un équipement qui ne sait pas envoyer en TCP." addrs ;;
-      6) edit_list TRIVY "Accès entrants > serveurs Trivy" \
-           "Serveurs équipés de l'agent Trivy du Mini-SOC : 443/TCP, limité à l'envoi de leurs rapports\n(interface et reste de l'API refusés, sauf adresse aussi en administration ou écran mural).\nJeton propre à chaque serveur, créé dans Intégrations › Trivy." addrs ;;
     esac
   done
 }
@@ -439,7 +407,6 @@ summary() {  # appelée dans $(…) : ne modifie aucune variable
 ENTRANT
   Administration (SSH, web) : $(described ADMINS)
   Écran mural               : $(w=$(described WALL); echo "${w:-aucun}")
-  Serveurs Trivy (envoi)    : $(w=$(described TRIVY); echo "${w:-aucun}")
   Syslog 514/TCP            : $(w=$(described SYSLOG_TCP); echo "${w:-aucune}")
   Syslog 6514/TCP (TLS)     : $(w=$(described SYSLOG_TLS); echo "${w:-aucune}")
   Syslog 514/UDP            : $(w=$(described SYSLOG_UDP); echo "${w:-aucune}")
@@ -460,14 +427,13 @@ s_apply() {
   for f in "$FW" "$SSHD" "$BACKUP_KEYS" "$KEYS" "$NOTES_FILE"; do if [ -f "$f" ]; then cp -p "$f" "$f.prev"; fi; done
   cat > "$FW" <<EOF
 # Pare-feu du Mini-SOC : adresses autorisées. Écrit par sudo minisoc-setup le $(date '+%d/%m/%Y %H:%M').
-# Après modification à la main : sudo minisoc-setup --relire (SSH, pare-feu, interface web)
+# Après modification à la main : sudo minisoc-setup --relire (SSH, pare-feu)
 # Description de chaque adresse : /etc/minisoc/firewall-notes.conf
 LAN_IF="$LAN_IF"
 
 # --- Entrant ---
 ADMINS="$ADMINS"
 WALL="$WALL"
-TRIVY="$TRIVY"
 SYSLOG_TCP="$SYSLOG_TCP"
 SYSLOG_TLS="$SYSLOG_TLS"
 SYSLOG_UDP="$SYSLOG_UDP"
@@ -511,10 +477,6 @@ EOF
   systemd-run --quiet --on-active="$CONFIRM_DELAY" --unit minisoc-rollback /usr/local/sbin/minisoc-setup --rollback
   ok "filet de sécurité armé : retour arrière dans $((CONFIRM_DELAY / 60)) min"
   if apply_all; then ok "SSH et pare-feu appliqués"; else ko "échec : retour arrière"; /usr/local/sbin/minisoc-setup --rollback; pause; return 0; fi
-  local trivy_msg="aucun serveur Trivy"
-  [ -z "$TRIVY" ] || trivy_msg="serveurs Trivy limités à l'envoi de leurs rapports"
-  if web_access 2>&1 | sed "s/^/${G}│${N} /"; then ok "interface web : $trivy_msg"
-  else ko "interface web non redémarrée : sudo minisoc-setup --acces-web"; fi
   line ""
   line "${W}Depuis un poste DSI, ouvrir une NOUVELLE session :${N}"
   line "   $(ssh_cmd)        https://$(envget MINISOC_HOSTNAME)"

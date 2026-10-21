@@ -63,8 +63,6 @@ FIELDS: dict[str, Field] = {
     "src_m365_enabled": Field("integrations", "bool", False),
     "src_ninjaone_enabled": Field("integrations", "bool", False),
     "src_cyberwatch_enabled": Field("integrations", "bool", False),
-    # Trivy : analyse des images de la VM sans réglage, d'où l'activation par défaut
-    "src_trivy_enabled": Field("integrations", "bool", True),
     "src_crowdsec_enabled": Field("integrations", "bool", False),
     "src_windows_enabled": Field("integrations", "bool", False),
     "src_dns_enabled": Field("integrations", "bool", False),
@@ -86,7 +84,6 @@ FIELDS: dict[str, Field] = {
     "harfanglab_sync_status": Field("connectors", "bool", True),
     "ninjaone_sync_status": Field("connectors", "bool", True),
     "cyberwatch_sync_status": Field("connectors", "bool", True),
-    "trivy_alert_high": Field("connectors", "bool", False),  # alerte aussi sur les failles hautes corrigeables
     "varonis_sync_status": Field("connectors", "bool", True),
     "bitdefender_sync_status": Field("connectors", "bool", True),
     # Export vers un SIEM ou un SOC externe (minisoc/export.py)

@@ -62,7 +62,6 @@ allow_in() {  # allow_in <port> <tcp|udp> <sources…> : port publié par un con
   done
 }
 allow_in 443 tcp $ADMINS $WALL                # jamais depuis Internet : aucune publication
-allow_in 443 tcp ${TRIVY:-}                   # serveurs Trivy : Caddy ne leur laisse que POST /api/ingest/trivy
 allow_in 80 tcp $ADMINS                       # redirection vers HTTPS
 allow_in 514 tcp $SYSLOG_TCP
 allow_in 6514 tcp $SYSLOG_TLS

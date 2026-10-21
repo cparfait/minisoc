@@ -17,8 +17,6 @@ RUN groupadd --system minisoc && useradd --system --gid minisoc --home-dir /app 
 RUN mkdir -p /var/lib/minisoc/archives && chown -R minisoc:minisoc /var/lib/minisoc
 # Bases GeoIP : volume nommé initialisé avec ce propriétaire (téléchargées par le worker, compte non privilégié)
 RUN mkdir -p /app/data/geoip && chown minisoc:minisoc /app/data/geoip
-# Rapports Trivy de la VM : dossier de l'hôte monté ici (propriété du compte minisoc, voir deploy/trivy)
-RUN mkdir -p /var/lib/minisoc/trivy && chown minisoc:minisoc /var/lib/minisoc/trivy
 # --require-hashes : refuse tout paquet absent du verrou ou dont l'empreinte diffère (dépendance transitive comprise)
 COPY requirements.lock ./
 RUN pip install --require-hashes -r requirements.lock

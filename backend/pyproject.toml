@@ -38,7 +38,7 @@ build-backend = "setuptools.build_meta"
 include = ["minisoc*"]
 
 [tool.setuptools.package-data]
-minisoc = ["migrations/script.py.mako", "guides/*.md", "detection_suggestions.yaml", "agents/*.sh"]
+minisoc = ["migrations/script.py.mako", "guides/*.md", "detection_suggestions.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -327,28 +327,6 @@ CATALOG: tuple[Integration, ...] = (
         ),
     ),
     Integration(
-        id="trivy", name="Trivy (images Docker et serveurs)", vendor="Aqua Security (open source)",
-        category="Vulnérabilités", modes=("analyse locale", "agent HTTPS"), enable_key="src_trivy_enabled",
-        modules=("trivy",), silence_minutes=8 * 24 * 60,
-        description="Composants vulnérables des images Docker du Mini-SOC et de la VM (analyse hebdomadaire, après "
-                    "chaque mise à jour ou à la demande), et des serveurs équipés de l'agent : faille activement "
-                    "exploitée présente (UC-52), faille critique corrigeable (UC-53) ; détail sur la page "
-                    "Vulnérabilités, à côté de Cyberwatch.",
-        fields=(
-            FieldUI("trivy_alert_high", "Alerter aussi sur les failles hautes corrigeables", "bool",
-                    help="Par défaut, seules les failles critiques corrigeables et celles du catalogue CISA KEV "
-                    "donnent une alerte ; toutes restent visibles sur la page Vulnérabilités."),
-        ),
-        setup=(
-            "1. Images du Mini-SOC : rien à faire, l'analyse tourne chaque semaine sur la VM (service "
-            "minisoc-trivy) ; bouton « Analyser maintenant » ci-dessous.\n"
-            "2. Serveurs : créer un jeton par serveur (onglet Configuration), installer l'agent avec ce jeton et "
-            "autoriser le serveur en 443 vers la VM (sudo minisoc-setup › Entrants › Serveurs Trivy). Cette liste "
-            "ne donne que l'envoi des rapports : l'interface web et le reste de l'API sont refusés (403) à ces "
-            "serveurs, sauf adresse aussi déclarée en administration ou en écran mural."
-        ),
-    ),
-    Integration(
         id="ogo", name="OGO Security (WAF)", vendor="OGO", category="Pare-feu applicatif",
         modes=("API",), enable_key="src_ogo_enabled", modules=("ogo",), silence_minutes=60,
         description="Attaques web en cours sur les sites protégés : pic de bannissements, afflux de trafic, "

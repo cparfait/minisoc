@@ -241,7 +241,7 @@ export function WordPressAdmin() {
   };
 
   return (
-    <div className="trivy-admin">
+    <div className="integration-admin">
       <h3>Sites WordPress</h3>
       <p className="muted small">
         Identifiant et <strong>mot de passe d'application</strong> d'un compte administrateur du site (Utilisateurs ›

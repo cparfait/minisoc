@@ -40,10 +40,9 @@ def test_disabled_sources_are_dropped_and_not_monitored():
 
 
 def test_integrations_disabled_by_default():
-    # Seule exception : Trivy, dont l'analyse des images de la VM ne demande aucun réglage
     for item in CATALOG:
         if item.enable_key:
-            assert FIELDS[item.enable_key].default is (item.id == "trivy"), item.id
+            assert FIELDS[item.enable_key].default is False, item.id
 
 
 def test_secrets_never_in_catalog_payload():

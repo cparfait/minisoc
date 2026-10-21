@@ -334,22 +334,6 @@ class AuditLog(Base):
     hash: Mapped[str] = mapped_column(String(64))
 
 
-class TrivySource(Base):
-    """Serveur autorisé à envoyer ses rapports Trivy (POST /api/ingest/trivy) : jeton propre, révocable."""
-
-    __tablename__ = "trivy_sources"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(128))
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True)  # SHA-256, jamais le jeton
-    allowed_ips: Mapped[list] = mapped_column(JSONB, default=list)  # vide = toutes
-    created_by: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_ip: Mapped[str] = mapped_column(String(64), default="")
-    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
 class DisplayToken(Base):
     """Jeton d'un écran mural : lecture seule, limité au tableau de bord d'affichage, révocable."""
 
