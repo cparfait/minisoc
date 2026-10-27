@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api";
 import Coverage from "../components/Coverage";
+import InventoryCross from "../components/InventoryCross";
 import CyberwatchExposure from "../components/CyberwatchExposure";
 import ParcExposure from "../components/ParcExposure";
 import { Card, Empty, ErrorBanner, PageHeader } from "../components/ui";
@@ -51,6 +52,7 @@ export default function Veille() {
       <ErrorBanner error={error} />
       <ParcExposure />
       <Coverage />
+      <InventoryCross />
       <CyberwatchExposure />
       <div className="grid-2">
         <Card title="CERT-FR : alertes et avis récents">

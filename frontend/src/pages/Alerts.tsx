@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, query } from "../api";
 import { canEdit, useUser } from "../App";
-import { DetectionName, ToolBadge, detectionName, residualEntity } from "../components/AlertBits";
+import { DetectionName, ToolBadge, bitdefenderGroup, detectionName, residualEntity } from "../components/AlertBits";
 import DetectionTopics from "../components/DetectionTopics";
 import { BulkActions } from "../components/BulkActions";
 import { OverdueBadge, ToolStateLine } from "../components/Followup";
@@ -384,6 +384,7 @@ export default function Alerts() {
                   </Link>{" "}
                   <VerdictBadge verdict={a.verdict} label={a.verdict_label} />
                   <CategoryBadge category={a.category} />
+                  {bitdefenderGroup(a) && <span className="badge sev-low" title="Groupe Bitdefender">{bitdefenderGroup(a)}</span>}
                   {a.incident_id && <IncidentBadge id={a.incident_id} />}
                   <div className="muted small alert-meta" title={`${a.rule_id} · ${a.entity_key}`}>
                     <span className="rule-chip">{a.rule_id}</span> {residualEntity(a.entity_key)}

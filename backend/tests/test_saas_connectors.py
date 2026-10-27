@@ -211,7 +211,7 @@ async def test_gravityzone_poll_parse_and_rules():
         "bitdefender", "alert", 4, "PTB-00300")
     assert "n° 412" in incident.message and incident.reference.endswith("/67dd30dd4a842ebbbb0b6af4")
     assert (incident.rule_name, incident.threat_name) == ("ATC.Mimikatz", "Credential Access")
-    assert quarantine.rule_name == "Fichier mis en quarantaine" and "facture.exe" in quarantine.message
+    assert quarantine.rule_name == "Fichier mis en quarantaine : Trojan.GenericKD.1234" and "facture.exe" in quarantine.message
     assert (quarantine.action, quarantine.outcome, quarantine.severity, quarantine.threat_name) == (
         "malware_detected", "success", 2, "Trojan.GenericKD.1234")
     assert "NATIVE" in {r.id for r in RULES.match(incident)}

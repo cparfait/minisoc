@@ -6,6 +6,7 @@ import { api } from "../api";
 import { canEdit, useUser } from "../App";
 import AIConversation from "../components/AIConversation";
 import BlockPanel from "../components/BlockPanel";
+import BlockSummary from "../components/BlockSummary";
 import EventTable from "../components/EventTable";
 import ExceptionFromAlert from "../components/ExceptionFromAlert";
 import { OverdueBadge, ToolActions, ToolStateLine, WAITING_REASONS, useAssignees, waitingLabel } from "../components/Followup";
@@ -65,6 +66,9 @@ export default function AlertDetail() {
   const sampleIps = (alert.details.sample_ips as string[] | undefined) ?? [];
   const sampleUsers = (alert.details.sample_users as string[] | undefined) ?? [];
   const qualification = alert.details.qualification as Qualification | undefined;
+  const coverage = alert.details.coverage as
+    | { reason: string; seen_by: string[]; since?: string; bitdefender_group?: string | null; perimeter?: string | null }
+    | undefined;
   // IP candidates au blocage : entité, IP observées, entités regroupées (anti-tempête)
   const groupedIps = Object.keys((alert.details.entities as Record<string, number> | undefined) ?? {})
     .filter((k) => k.startsWith("source.ip=") && !k.includes(" | "))
@@ -101,7 +105,38 @@ export default function AlertDetail() {
       <ImpactedHosts hosts={alert.hosts} events={alert.events} selected={host} onSelect={setHost} />
       <Triage events={alert.events} host={host} onReset={() => setHost(null)} />
       <ToolTriage events={alert.events} host={host} />
+      <BlockSummary events={alert.events} massive={alert.rule_id === "UC-65"} total={alert.metric} />
       <DerivedDetails details={alert.details} />
+      {coverage && (
+        <Card title="Couverture de la machine">
+          <dl className="coverage-facts">
+            <dt>Constat</dt>
+            <dd><strong>{coverage.reason}</strong></dd>
+            {coverage.perimeter && (
+              <>
+                <dt>Périmètre</dt>
+                <dd>
+                  {coverage.perimeter === "AD" ? "Machine de l'AD : protégée par HarfangLab" : "Hors AD (écoles…) : protégée par Bitdefender"}
+                </dd>
+              </>
+            )}
+            {coverage.bitdefender_group !== undefined && coverage.bitdefender_group !== null && (
+              <>
+                <dt>Groupe Bitdefender</dt>
+                <dd>{coverage.bitdefender_group ? <span className="badge sev-low">{coverage.bitdefender_group}</span> : <span className="muted">aucun : la machine n'est pas dans GravityZone</span>}</dd>
+              </>
+            )}
+            <dt>Vue par</dt>
+            <dd>{coverage.seen_by.map(moduleLabel).join(", ")}</dd>
+            {coverage.since && (
+              <>
+                <dt>Depuis</dt>
+                <dd>{formatDate(coverage.since)}</dd>
+              </>
+            )}
+          </dl>
+        </Card>
+      )}
 
       {qualification && (
         <section className={`card qualification verdict-box-${qualification.verdict}`}>

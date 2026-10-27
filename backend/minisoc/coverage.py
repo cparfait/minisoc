@@ -6,7 +6,9 @@ Chaque heure, trois listes sont croisées (lecture seule) :
 - les postes protégés par l'EDR : agents HarfangLab ayant donné signe de vie depuis moins de 7 jours.
 
 Une machine en service absente de GravityZone (ou seulement « découverte », sans agent) donne une alerte UC-58
-« pas d'antivirus » ; absente de HarfangLab (ou agent muet depuis plus de 7 jours), une alerte UC-59 « pas d'EDR ».
+« pas d'antivirus ». UC-59 « pas d'EDR » dépend du périmètre : un PC de l'AD est couvert par HarfangLab seul (alerte si
+agent absent ou muet depuis plus de 7 jours), une machine hors AD (écoles) par Bitdefender seul (alerte si absente de
+GravityZone ou sans agent). Annuaire non lu : pas d'alerte UC-59.
 Seuls les systèmes Windows et macOS sont attendus (appliances, hyperviseurs et équipements réseau n'en ont pas).
 
 Garde-fous : une liste lue partiellement ou en erreur ne produit aucune alerte (et n'en clôture aucune) ; une
@@ -32,7 +34,8 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from sqlalchemy import select
 
-from minisoc import identity
+from minisoc import identity, inventory_cross
+from minisoc.accounts import ad_configured
 from minisoc.alerts import SYSTEM, Detection, _last_closed, upsert_alert
 from minisoc.identity import base_host_key
 from minisoc.models import OPEN_STATUSES, Alert, AlertHistory
@@ -67,6 +70,10 @@ class Inventory:
     alive: dict[str, Machine] = field(default_factory=dict)  # clé -> machine en service
     antivirus: dict[str, str] | None = None  # clé -> état GravityZone (« géré », « non géré ») ; None : non lu
     edr: dict[str, datetime | None] | None = None  # clé -> dernier signe de vie de l'agent ; None : non lu
+    av_groups: dict[str, str] = field(default_factory=dict)  # clé -> groupe GravityZone de la machine
+    raw: dict[str, list[dict] | None] = field(default_factory=dict)  # relevés bruts des consoles (croisement)
+    ad: set[str] | None = None  # clés des ordinateurs de l'AD (périmètre de l'EDR) ; None : annuaire non lu
+    groups: dict[str, str] | None = None  # id de groupe GravityZone -> chemin lisible ; None : non lu
     errors: list[str] = field(default_factory=list)
     complete: bool = True  # faux si une source attendue des machines en service manque (aucune conclusion)
 
@@ -128,9 +135,17 @@ def add_harfanglab(inv: Inventory, agents: list[dict], now: datetime) -> list[tu
     return pairs
 
 
+def group_label(inv: Inventory, group_id) -> str:
+    """Groupe GravityZone d'une machine : chemin lisible si les groupes ont pu être lus, sinon l'identifiant."""
+    group_id = str(group_id or "")
+    if not group_id:
+        return ""
+    return (inv.groups or {}).get(group_id) or f"groupe {group_id}"
+
+
 def add_gravityzone(inv: Inventory, endpoints: list[dict]) -> list[tuple[str, str, datetime | None]]:
     """Machines connues de GravityZone : « géré » (agent Bitdefender installé) ou « non géré » (seulement découverte
-    sur le réseau ou dans l'annuaire, sans protection)."""
+    sur le réseau ou dans l'annuaire, sans protection). Le groupe (dossier) de la machine est conservé."""
     inv.antivirus = {}
     pairs = []
     for endpoint in endpoints:
@@ -141,6 +156,7 @@ def add_gravityzone(inv: Inventory, endpoints: list[dict]) -> list[tuple[str, st
         key = base_host_key(name)
         if inv.antivirus.get(key) != "géré":
             inv.antivirus[key] = "géré" if managed else "non géré"
+            inv.av_groups[key] = group_label(inv, endpoint.get("groupId"))
         for ip in _ips(endpoint.get("ip")):
             pairs.append((name, ip, None))
     return pairs
@@ -160,12 +176,23 @@ def gaps(inv: Inventory, now: datetime) -> dict[str, dict[str, dict]]:
     out: dict[str, dict[str, dict]] = {NO_AV_RULE: {}, NO_EDR_RULE: {}}
     for key, machine in inv.alive.items():
         base = {"name": machine.name, "server": machine.server, "sources": sorted(machine.sources)}
+        if inv.antivirus is not None:  # groupe Bitdefender (vide : machine absente de GravityZone)
+            base["bitdefender_group"] = inv.av_groups.get(key, "")
         if inv.antivirus is not None and inv.antivirus.get(key) != "géré":
             reason = ("non géré dans GravityZone (machine découverte, agent Bitdefender absent)"
                       if inv.antivirus.get(key) == "non géré" else "absente de GravityZone")
             out[NO_AV_RULE][key] = {**base, "reason": reason}
-        # Sans EDR : établi seulement d'après une autre source que HarfangLab lui-même
-        if inv.edr is not None and machine.sources - {"harfanglab"}:
+        # Sans EDR, selon le périmètre : un PC de l'AD est couvert par HarfangLab seul, une machine hors AD (écoles)
+        # par Bitdefender seul. Annuaire non lu : périmètre inconnu, aucune conclusion.
+        if inv.ad is None:
+            continue
+        base["perimeter"] = "AD" if key in inv.ad else "hors AD"
+        if key not in inv.ad:
+            if inv.antivirus is not None and inv.antivirus.get(key) != "géré":
+                reason = ("hors AD : non géré dans GravityZone (agent Bitdefender absent)"
+                          if inv.antivirus.get(key) == "non géré" else "hors AD : absente de GravityZone")
+                out[NO_EDR_RULE][key] = {**base, "reason": reason}
+        elif inv.edr is not None and machine.sources - {"harfanglab"}:
             seen = inv.edr.get(key, "absent")
             if seen == "absent":
                 out[NO_EDR_RULE][key] = {**base, "reason": "aucun agent HarfangLab"}
@@ -195,6 +222,25 @@ async def harfanglab_agents(client: httpx.AsyncClient) -> list[dict]:
             return agents
         offset += HL_PAGE
     raise RuntimeError("liste des agents HarfangLab trop longue : vérification de couverture interrompue")
+
+
+GROUP_MAX = 500  # groupes personnalisés lus au plus (arborescence)
+
+
+async def gravityzone_groups(api) -> dict[str, str]:
+    """Groupes personnalisés de GravityZone : {id: « Parent / Enfant »}. Les machines rangées dans les dossiers
+    prédéfinis (Ordinateurs et groupes, Active Directory…) n'y figurent pas : leur groupe reste alors l'identifiant."""
+    names: dict[str, str] = {}
+    pending: list[tuple[str | None, str]] = [(None, "")]
+    while pending and len(names) < GROUP_MAX:
+        parent, path = pending.pop()
+        result = await api.call("v1.0/jsonrpc/network", "getCustomGroupsList", {"parentId": parent} if parent else {})
+        for group in (result.get("items") if isinstance(result, dict) else result) or []:
+            if not group.get("id") or group["id"] in names:
+                continue
+            names[group["id"]] = f"{path} / {group.get('name')}" if path else str(group.get("name") or group["id"])
+            pending.append((group["id"], names[group["id"]]))
+    return names
 
 
 async def gravityzone_endpoints(api) -> list[dict]:
@@ -234,24 +280,44 @@ class CoverageJob:
             if time.time() - posture_at < POSTURE_FRESH:
                 devices = [json.loads(v) for v in (await self.redis.hgetall(POSTURE_KEY)).values()]
                 pairs += add_ninjaone(inv, devices, now)
+                inv.raw["ninjaone"] = devices
             else:  # sans le relevé, des machines manqueraient : leurs alertes seraient closes à tort
                 inv.complete = False
                 inv.errors.append("NinjaOne : relevé de l'état du parc absent ou de plus de 3 heures")
         if harfanglab.configured(cfg):
             try:
                 async with harfanglab.make_client(cfg) as client:
-                    pairs += add_harfanglab(inv, await harfanglab_agents(client), now)
+                    agents = await harfanglab_agents(client)
+                pairs += add_harfanglab(inv, agents, now)
+                inv.raw["harfanglab"] = agents
             except Exception as exc:  # noqa: BLE001 - liste incomplète : aucune conclusion sur l'EDR
                 inv.edr = None
                 inv.errors.append(f"HarfangLab : {str(exc)[:200]}")
         if gravityzone.configured(cfg) and cfg.get("src_bitdefender_enabled", False):
             try:
                 async with httpx.AsyncClient(timeout=60) as http:
-                    endpoints = await gravityzone_endpoints(gravityzone.GravityZoneClient(cfg, http))
+                    api = gravityzone.GravityZoneClient(cfg, http)
+                    endpoints = await gravityzone_endpoints(api)
+                    try:
+                        inv.groups = await gravityzone_groups(api)
+                    except Exception as exc:  # noqa: BLE001 - la couverture continue, groupes affichés par identifiant
+                        inv.errors.append(f"GravityZone, noms des groupes : {str(exc)[:200]}")
                 pairs += add_gravityzone(inv, endpoints)
+                inv.raw["bitdefender"] = endpoints
             except Exception as exc:  # noqa: BLE001 - droits « Réseau » absents de la clé, quota… : aucune conclusion
                 inv.antivirus = None
                 inv.errors.append(f"GravityZone : {str(exc)[:200]} (la clé d'API doit avoir l'API Réseau)")
+        if ad_configured(cfg):
+            try:
+                from minisoc.ldap_auth import computers
+
+                inv.raw["ad"] = await asyncio.to_thread(computers, cfg)
+                inv.ad = {base_host_key(c["name"]) for c in inv.raw["ad"]}
+            except Exception as exc:  # noqa: BLE001 - sans annuaire, le croisement ne conclut pas sur « hors AD »
+                inv.errors.append(f"Annuaire AD : {str(exc)[:200]}")
+        if inv.ad is None:
+            inv.errors.append("Annuaire AD non lu : périmètre de l'EDR inconnu (AD : HarfangLab, hors AD : Bitdefender), "
+                              "alerte « sans EDR » non évaluée")
         return inv, pairs
 
     async def once(self) -> dict:
@@ -261,9 +327,11 @@ class CoverageJob:
         inv, pairs = await self.collect(cfg, now)
         await identity.sync_hosts(self.redis, self.store, pairs)
         found = gaps(inv, now)
+        await self.redis.set(inventory_cross.KEY, json.dumps(
+            inventory_cross.build(inv.raw, inv.groups, now), ensure_ascii=False))
         report = {"at": now.isoformat(), "machines": len(inv.alive), "errors": inv.errors,
-                  "antivirus_checked": inv.antivirus is not None, "edr_checked": inv.edr is not None}
-        for rule_id, checked in ((NO_AV_RULE, inv.antivirus is not None), (NO_EDR_RULE, inv.edr is not None)):
+                  "antivirus_checked": inv.antivirus is not None, "edr_checked": inv.ad is not None and inv.edr is not None}
+        for rule_id, checked in ((NO_AV_RULE, inv.antivirus is not None), (NO_EDR_RULE, inv.ad is not None and (inv.edr is not None or inv.antivirus is not None))):
             if not checked or not inv.complete or not inv.alive:
                 report[rule_id] = None  # source non lue : ni alerte, ni clôture
                 continue
@@ -287,7 +355,11 @@ class CoverageJob:
         raised = 0
         for host, gap in missing.items():
             first = _date(kept[host]) or now
-            values = {"host.name": gap["name"], "threat.name": gap["reason"]}
+            reason = gap["reason"]
+            if "bitdefender_group" in gap:
+                reason += (f" (groupe Bitdefender : {gap['bitdefender_group']})" if gap["bitdefender_group"]
+                           else " (absente de Bitdefender)")
+            values = {"host.name": gap["name"], "threat.name": reason}
             if rule is None or now - first < GRACE or self.exceptions.is_excepted(rule_id, values):
                 continue
             entity = entity_key(rule.group_by, values)
@@ -304,7 +376,9 @@ class CoverageJob:
                     accumulate=False, modules=gap["sources"],
                     details={"category": rule.category, "sample": values,
                              "coverage": {"reason": gap["reason"], "seen_by": gap["sources"],
-                                          "server": gap["server"], "since": first.isoformat()}},
+                                          "server": gap["server"], "since": first.isoformat(),
+                                          "bitdefender_group": gap.get("bitdefender_group"),
+                                          "perimeter": gap.get("perimeter")}},
                 ))
                 await session.commit()
             if action == "created":

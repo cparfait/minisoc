@@ -41,6 +41,11 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Nom de la détection, sans l'outil ni la machine (affichés dans leurs colonnes). */
 export function detectionName(alert: Alert): string {
   let name = alert.title;
+  if (alert.rule_id === "UC-58" || alert.rule_id === "UC-59") {
+    // Couverture : la machine a sa colonne, le groupe Bitdefender sa pastille (bitdefenderGroup)
+    name = name.replace(/\s*\(groupe Bitdefender : .*\)$/, "").replace(/\s*\(absente de Bitdefender\)$/, "");
+    for (const h of alert.hosts ?? []) name = name.replace(new RegExp(` sur ${escape(h.name)}(?= :|$)`, "i"), "");
+  }
   for (const m of alert.modules) {
     name = name.replace(new RegExp(`^(${escape(m)}|${escape(moduleLabel(m))})\\s*:\\s*`, "i"), "");
   }
@@ -48,6 +53,11 @@ export function detectionName(alert: Alert): string {
     name = name.replace(new RegExp(`\\s*\\(${escape(h.name)}\\)$`, "i"), "");
   }
   return name || alert.title;
+}
+
+/** Groupe Bitdefender d'une alerte de couverture (UC-58, UC-59), lu dans le titre. */
+export function bitdefenderGroup(alert: Alert): string {
+  return /\(groupe Bitdefender : (.*)\)$/.exec(alert.title)?.[1] ?? "";
 }
 
 export function DetectionName({ name }: { name: string }) {

@@ -78,6 +78,9 @@ def parse_bitdefender(event: dict, received: datetime, console_url: str = "") ->
                     severity = 1  # double d'un incident de poste déjà remonté : gardé, sans alerte
         else:
             rule_name = "Fichier mis en quarantaine"
+    if category == "malware" and threat_name and threat_name != rule_name:
+        # Le nom de la menace fait partie de la détection : titre lisible, une alerte par menace et par poste
+        rule_name = f"{rule_name} : {threat_name}"
 
     outcome = ""
     if category == "malware" and status:

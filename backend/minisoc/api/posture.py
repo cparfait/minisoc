@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from minisoc import coverage, identity
+from minisoc import coverage, identity, inventory_cross
 from minisoc import cve as cve_search
 from minisoc.api.deps import ANALYST, ANY_USER, get_db
 from minisoc.assets import INDEX, key_for
@@ -170,3 +170,10 @@ async def coverage_run(request: Request, _: User = Depends(ANALYST)):
     """Vérification de couverture au prochain passage (dans les 10 secondes)."""
     await request.app.state.redis.set(coverage.NOW_KEY, "1", ex=3600)
     return {"queued": True}
+
+
+@router.get("/inventory/cross")
+async def inventory_cross_view(request: Request, _: User = Depends(ANY_USER)):
+    """Croisement NinjaOne / Bitdefender / HarfangLab / AD (dernière vérification de couverture) : machines à nettoyer."""
+    raw = await request.app.state.redis.get(inventory_cross.KEY)
+    return {"cross": json.loads(raw) if raw else None}

@@ -338,7 +338,8 @@ def user_identities(cfg: dict[str, Any]) -> list[dict]:
 
 
 COMPUTER_FILTER = "(objectCategory=computer)"
-COMPUTER_ATTRIBUTES = ["cn", "dNSHostName", "description", "operatingSystem", "distinguishedName", "managedBy"]
+COMPUTER_ATTRIBUTES = ["cn", "dNSHostName", "description", "operatingSystem", "distinguishedName", "managedBy",
+                       "userAccountControl", "lastLogonTimestamp"]
 MAX_COMPUTERS = 10000
 
 
@@ -351,8 +352,17 @@ def _first_ou(dn: str) -> str:
     return ""
 
 
+def _disabled(control: Any) -> bool:
+    """Bit ACCOUNTDISABLE (0x2) de userAccountControl."""
+    try:
+        return bool(int(_single(control)) & 2)
+    except (TypeError, ValueError):
+        return False
+
+
 def computers(cfg: dict[str, Any]) -> list[dict]:
-    """Ordinateurs de l'annuaire (inventaire) : nom, description, système, service (première OU). Lecture seule.
+    """Ordinateurs de l'annuaire (inventaire) : nom, description, système, service (première OU), compte activé et
+    dernière ouverture de session (réplication à ~14 jours près, ménage des outils). Lecture seule.
     Bloquant : asyncio.to_thread."""
     conn = _service_connection(cfg)
     try:
@@ -373,6 +383,8 @@ def computers(cfg: dict[str, Any]) -> list[dict]:
                 "os": str(_single(attrs.get("operatingSystem")) or ""),
                 "service": _first_ou(str(entry.get("dn") or _single(attrs.get("distinguishedName")) or "")),
                 "owner": managed.split(",")[0].removeprefix("CN=") if managed else "",
+                "enabled": not _disabled(attrs.get("userAccountControl")),
+                "last_logon": _filetime(attrs.get("lastLogonTimestamp")),
             })
             if len(out) >= MAX_COMPUTERS:
                 break

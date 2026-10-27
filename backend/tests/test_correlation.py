@@ -228,6 +228,7 @@ def _inventory():
         {"name": "SRV-WSUS.mairie.local", "isManaged": True},
         {"name": "PC-NEUF", "isManaged": False},  # découvert, sans agent
     ])
+    inv.ad = {"pc-00605", "srv-wsus", "pc-neuf", "pc-hl-seul"}  # toutes dans l'AD : l'EDR attendu est HarfangLab
     return inv, pairs, now
 
 

@@ -1,0 +1,20 @@
+id: UC-65
+name: Même menace bloquée sur plusieurs postes
+type: threshold
+severity: high
+description: >
+  Bitdefender a détecté la même menace sur plusieurs postes en peu de temps, même si chaque détection a été bloquée,
+  supprimée ou mise en quarantaine. Un blocage isolé est un incident de routine ; le même blocage sur plusieurs
+  postes est une campagne (hameçonnage, clé USB, outil diffusé à grande échelle) ou un test d'intrusion en cours.
+  L'alerte reste ouverte tant que de nouveaux postes sont touchés : elle donne la liste des postes concernés.
+filter:
+  event.module: bitdefender
+  event.category: malware
+  threat.name: {exists: true}
+group_by: [threat.name]
+window: 1h
+condition: count_distinct(host.name) >= 3
+title: "{threat.name} détecté sur {value} postes en 1 h (Bitdefender)"
+dedup_window: 24h
+mitre: [T1204.002]
+playbook: playbooks/malware-massive.md

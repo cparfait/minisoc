@@ -191,6 +191,17 @@ def test_bitdefender_malware_blocked_is_medium():
     assert (ev.category, ev.outcome, ev.severity) == ("malware", "success", 2)
 
 
+def test_bitdefender_detection_name_carries_the_threat():
+    api = parse_bitdefender({"module": "av", "source": "api", "computer_name": "PC-01", "malware_name": "Gen:Variant.X",
+                             "final_status": "quarantined"}, NOW)
+    assert api.rule_name == "Fichier mis en quarantaine : Gen:Variant.X"
+    push = parse_bitdefender({"module": "av", "computer_name": "PC-01", "malware_type": "Trojan",
+                              "malware_name": "Trojan.X", "final_status": "deleted"}, NOW)
+    assert push.rule_name == "Trojan : Trojan.X"
+    same = parse_bitdefender({"module": "av", "computer_name": "PC-01", "malware_name": "EICAR"}, NOW)
+    assert same.rule_name == "av : EICAR"  # sans type de menace, le module précède le nom
+
+
 def test_bitdefender_malware_not_neutralized_is_critical():
     ev = parse_bitdefender(
         {"module": "av", "computer_name": "PC-01", "malware_name": "Trojan.X", "final_status": "present"}, NOW
