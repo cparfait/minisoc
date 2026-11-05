@@ -69,6 +69,16 @@ export interface DetectionTopic {
 }
 
 /** État lu dans l'outil d'origine (le Mini-SOC ne modifie jamais les outils). */
+export interface AlertTicket {
+  id: number;
+  url: string;
+  status: string;
+  label: string;
+  by: string;
+  at: string;
+  checked_at: string;
+}
+
 export interface ToolState {
   tool: string;
   status: string;
@@ -83,6 +93,7 @@ export interface ToolState {
 export interface Alert {
   hosts: ImpactedHost[];
   tool_state?: ToolState | null;
+  ticket?: AlertTicket | null;
   waiting?: { reason: string; since: string; by: string } | null;
   acknowledged_at?: string | null;
   due?: { ack_due: string | null; resolve_due: string | null; overdue: "ack" | "resolve" | null } | null;

@@ -614,3 +614,7 @@ a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
 @media (max-width: 760px) {
   .alert-head { position: static; margin: -16px -16px 12px; padding: 10px 16px; }
 }
+
+/* Ticket NinjaOne d'une alerte */
+.ticket-state { display: grid; gap: 4px; justify-items: start; }
+.ticket-state .button { margin-top: 6px; }

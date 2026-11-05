@@ -172,6 +172,12 @@ FIELDS: dict[str, Field] = {
     "harfanglab_isolation_token": Field("response", "str", "", secret=True),
     "bitdefender_api_url": Field("response", "str", "https://cloudgz.gravityzone.bitdefender.com/api"),
     "bitdefender_api_key": Field("response", "str", "", secret=True),
+    # Tickets NinjaOne : application dédiée, distincte de l'application de lecture en portée Surveillance
+    "ninjaone_tickets_enabled": Field("response", "bool", False),
+    "ninjaone_tickets_client_id": Field("response", "str", ""),
+    "ninjaone_tickets_client_secret": Field("response", "str", "", secret=True),
+    "ninjaone_tickets_org_id": Field("response", "str", ""),
+    "ninjaone_tickets_form_id": Field("response", "str", ""),
     "never_block": Field("response", "list", ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]),
     # Détection
     "home_countries": Field("detection", "list", ["FR"]),  # pays habituels des connexions (codes ISO)

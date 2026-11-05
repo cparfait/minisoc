@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -168,5 +171,79 @@ async def isolation_test(request: Request, db: AsyncSession = Depends(get_db), u
     ok, detail = await test(await settings_store.load(db, force=True))
     await audit.record(db, actor=user.username, ip=client_ip(request), action="isolation_test",
                        obj="integration:edr_isolation", detail={"ok": ok})
+    await db.commit()
+    return {"ok": ok, "detail": detail}
+
+
+# --- Tickets NinjaOne --------------------------------------------------------------------------------------------
+
+class TicketRequest(BaseModel):
+    alert_id: int
+    subject: str = Field(min_length=3, max_length=200)
+    body: str = Field(min_length=3, max_length=8000)
+
+
+@router.get("/ticket/{alert_id}")
+async def ticket_view(alert_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(ANY_USER)):
+    """Ticket déjà ouvert sur l'alerte, sinon texte proposé pour l'ouvrir."""
+    from minisoc.api.alerts import serialize
+    from minisoc.models import Alert
+    from minisoc.response.ninja_tickets import draft, enabled
+
+    alert = await db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(404, "Alerte introuvable")
+    cfg = await settings_store.load(db)
+    return {"enabled": enabled(cfg), "ticket": (alert.details or {}).get("ninja_ticket"),
+            "draft": draft({**serialize(alert), "details": alert.details})}
+
+
+@router.post("/ticket")
+async def ticket_create(body: TicketRequest, request: Request, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(ANALYST)):
+    from minisoc.api.alerts import impacted_hosts
+    from minisoc.models import Alert, AlertHistory, IncidentEntry
+    from minisoc.response import ninja_tickets as tickets
+
+    cfg = await settings_store.load(db, force=True)
+    if not tickets.enabled(cfg):
+        raise HTTPException(409, "Tickets NinjaOne désactivés ou incomplets (Intégrations › Tickets NinjaOne)")
+    alert = await db.get(Alert, body.alert_id, with_for_update=True)  # verrou : pas de doublon sur un double envoi
+    if not alert:
+        raise HTTPException(404, "Alerte introuvable")
+    if (alert.details or {}).get("ninja_ticket"):
+        raise HTTPException(409, "Un ticket NinjaOne est déjà ouvert sur cette alerte")
+    node = await tickets.node_for(request.app.state.redis, [h["name"] for h in impacted_hosts(alert)])
+    try:
+        async with httpx.AsyncClient(timeout=tickets.TIMEOUT) as http:
+            data = await tickets.TicketClient(cfg, http).create(body.subject, body.body, node)
+    except (tickets.TicketError, httpx.HTTPError) as exc:
+        detail = str(exc) if isinstance(exc, tickets.TicketError) else f"NinjaOne injoignable ({type(exc).__name__})"
+        db.add(AlertHistory(alert_id=alert.id, actor=user.username, action="comment",
+                            detail=f"Ticket NinjaOne non créé : {detail}"))
+        await audit.record(db, actor=user.username, ip=client_ip(request), action="ninja_ticket_create",
+                           obj=f"alert:{alert.id}", detail={"ok": False})
+        await db.commit()
+        raise HTTPException(409, detail) from None
+    now = datetime.now(timezone.utc).isoformat()
+    ticket = {"id": data["id"], "url": tickets.console_url(cfg, data["id"]), "by": user.username, "at": now,
+              "checked_at": now, **tickets.state_of(data)}
+    alert.details = {**(alert.details or {}), "ninja_ticket": ticket}
+    note = f"Ticket NinjaOne n° {ticket['id']} ouvert : {body.subject}"
+    db.add(AlertHistory(alert_id=alert.id, actor=user.username, action="comment", detail=note))
+    if alert.incident_id:
+        db.add(IncidentEntry(incident_id=alert.incident_id, actor=user.username, kind="action", detail=note))
+    await audit.record(db, actor=user.username, ip=client_ip(request), action="ninja_ticket_create",
+                       obj=f"alert:{alert.id}", detail={"ok": True, "ticket": ticket["id"]})
+    await db.commit()
+    return ticket
+
+
+async def ticket_test(request: Request, db: AsyncSession, user: User):
+    from minisoc.response.ninja_tickets import test
+
+    ok, detail = await test(await settings_store.load(db, force=True))
+    await audit.record(db, actor=user.username, ip=client_ip(request), action="ninja_ticket_test",
+                       obj="integration:ninjaone_tickets", detail={"ok": ok})
     await db.commit()
     return {"ok": ok, "detail": detail}

@@ -47,6 +47,7 @@ from minisoc.connectors import varonis as vr
 from minisoc.ecs import FIELDS
 from minisoc.models import OPEN_STATUSES, Alert, AlertHistory
 from minisoc.parsers.harfanglab import STATUS_FR as HL_STATUS_FR
+from minisoc.response import ninja_tickets as tickets
 from minisoc.settings_store import store as settings_store
 
 log = logging.getLogger(__name__)
@@ -559,6 +560,36 @@ async def sync_gravityzone(session: AsyncSession, store, cfg: dict) -> int:
     return closed
 
 
+async def sync_tickets(session: AsyncSession, cfg: dict) -> int:
+    """État des tickets NinjaOne ouverts depuis les alertes : trace les changements, ne clôture jamais une alerte.
+    Une erreur arrête ce passage, repris 5 minutes plus tard. Renvoie le nombre de changements."""
+    rows = await session.execute(
+        select(Alert.id, Alert.details["ninja_ticket"])
+        .where(Alert.details["ninja_ticket"].astext.is_not(None))
+        .order_by(Alert.id.desc())
+        .limit(500)
+    )
+    followed = [(alert_id, ticket) for alert_id, ticket in rows.all() if tickets.is_followed(ticket)]
+    changes = 0
+    if not followed:
+        return changes
+    async with httpx.AsyncClient(timeout=tickets.TIMEOUT) as http:
+        api = tickets.TicketClient(cfg, http)
+        for alert_id, ticket in followed:
+            data = await api.read(ticket["id"])
+            fresh, note = tickets.updated(ticket, data)
+            alert = await session.get(Alert, alert_id, with_for_update=True, populate_existing=True)
+            if alert is None:
+                await session.rollback()
+                continue
+            alert.details = {**(alert.details or {}), "ninja_ticket": fresh}
+            if note:
+                session.add(AlertHistory(alert_id=alert_id, actor="NinjaOne (lecture)", action="comment", detail=note))
+                changes += 1
+            await session.commit()
+    return changes
+
+
 class SourceStatusSync:
     """Toutes les 5 minutes : clôture dans le Mini-SOC de ce qui a été traité dans l'outil d'origine."""
 
@@ -612,6 +643,13 @@ class SourceStatusSync:
                 except Exception as exc:  # noqa: BLE001
                     await session.rollback()
                     log.error("Synchronisation Cyberwatch interrompue : %s", exc)
+            if tickets.enabled(cfg):
+                try:
+                    if count := await sync_tickets(session, cfg):
+                        log.info("Tickets NinjaOne : %d changement(s) d'état", count)
+                except Exception as exc:  # noqa: BLE001
+                    await session.rollback()
+                    log.error("Suivi des tickets NinjaOne interrompu : %s", exc)
         for tool, count in result.items():
             if count:
                 log.info("%s : %d alerte(s) clôturée(s) d'après l'outil", tool, count)

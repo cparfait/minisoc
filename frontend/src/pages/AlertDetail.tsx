@@ -15,6 +15,7 @@ import EventTable from "../components/EventTable";
 import ExceptionFromAlert from "../components/ExceptionFromAlert";
 import { OverdueBadge, ToolActions, ToolStateLine, WAITING_REASONS, toolActionsTitle, useAssignees, waitingLabel } from "../components/Followup";
 import Markdown from "../components/Markdown";
+import NinjaTicket from "../components/NinjaTicket";
 import { CategoryBadge, PriorityPill, PriorityReasons } from "../components/Priority";
 import { SourceClosureNote } from "../components/SourceClosure";
 import { DerivedDetails } from "../components/Risk";
@@ -169,6 +170,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
                 <IsolationPanel key={alert.id} alertId={alert.id} onDone={reload} />
               </Fold>
             )}
+            <NinjaTicket alertId={alert.id} ticket={alert.ticket} editable={editable} onDone={reload} />
             {alert.incident_id ? (
               <p className="alert-incident">
                 <ShieldAlert size={15} /> Rattachée à l'<IncidentBadge id={alert.incident_id} /> : le traitement se suit dans l'incident.

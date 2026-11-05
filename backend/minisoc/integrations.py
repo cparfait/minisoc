@@ -455,6 +455,27 @@ CATALOG: tuple[Integration, ...] = (
         test="isolation",
         setup="Jeton ou clé d'API dédiés à l'isolation, puis activer l'interrupteur de la fiche.",
     ),
+    Integration(
+        id="ninjaone_tickets", name="Tickets NinjaOne", vendor="NinjaOne",
+        category="Réponse", modes=("API",), enable_key="ninjaone_tickets_enabled", status_kind="feature",
+        description="Bouton « Ouvrir un ticket » dans les alertes, avec relecture du texte avant l'envoi ; état du "
+                    "ticket suivi sur l'alerte. Le ticket ne clôture jamais l'alerte.",
+        fields=(
+            FieldUI("ninjaone_instance", "Instance", "choice", choices=(
+                ("eu", "Europe (eu.ninjarmm.com)"), ("us", "États-Unis (app.ninjarmm.com)"),
+                ("ca", "Canada (ca.ninjarmm.com)"), ("oc", "Océanie (oc.ninjarmm.com)"))),
+            FieldUI("ninjaone_tickets_client_id", "Identifiant client de l'application dédiée", required=True,
+                    help="Distinct de l'application de lecture en portée Surveillance."),
+            FieldUI("ninjaone_tickets_client_secret", "Secret client", "secret", required=True),
+            FieldUI("ninjaone_tickets_org_id", "Numéro de l'organisation",
+                    help="« Tester » affiche la liste des organisations."),
+            FieldUI("ninjaone_tickets_form_id", "Numéro du formulaire de ticket",
+                    help="« Tester » affiche la liste des formulaires."),
+        ),
+        test="ninja_tickets",
+        setup="Application « machine à machine » dédiée, portées Surveillance et Gestion, puis Tester pour obtenir "
+              "les numéros d'organisation et de formulaire.",
+    ),
 )
 
 BY_ID = {i.id: i for i in CATALOG}

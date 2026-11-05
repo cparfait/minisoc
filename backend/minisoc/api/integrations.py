@@ -192,6 +192,8 @@ async def test_integration(integration_id: str, request: Request, db: AsyncSessi
         return {"ok": ok, "detail": detail}
     if item.test == "isolation":
         return await response.isolation_test(request, db, user)
+    if item.test == "ninja_tickets":
+        return await response.ticket_test(request, db, user)
     if item.test == "m365":
         from minisoc.connectors import m365
 

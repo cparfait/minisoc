@@ -203,7 +203,9 @@ Code non versionné à ce jour (pas de dépôt git, aucun commit demandé).
 ### 2.5 quater Suivi des alertes (04/10/2026)
 
 Principe retenu par la DSI : **lecture seule sur les outils**. Le Mini-SOC suit qui traite quoi et indique comment
-agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres.
+agir dans l'outil ; il ne modifie jamais HarfangLab, NinjaOne ni les autres. Exceptions, toujours à la demande d'un
+analyste, désactivées par défaut et avec des identifiants dédiés : isolation de poste (F-27) et ouverture d'un ticket
+NinjaOne depuis une alerte (état suivi toutes les 5 minutes ; le ticket ne clôture jamais l'alerte).
 
 - Assignation à tout analyste ou administrateur (fiche et actions groupées), e-mail à la personne assignée.
 - Statut « En attente » avec motif (utilisateur, prestataire, éditeur, correctif planifié, autre) : alerte toujours

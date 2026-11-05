@@ -121,6 +121,7 @@ def serialize(
         "incident_id": alert.incident_id,
         "source_closure": (alert.details or {}).get("source_closure"),  # clôturée dans l'outil d'origine
         "tool_state": (alert.details or {}).get("tool_state"),  # état lu dans l'outil d'origine (lecture seule)
+        "ticket": (alert.details or {}).get("ninja_ticket"),  # ticket NinjaOne ouvert depuis l'alerte
         "waiting": (alert.details or {}).get("waiting"),
         "acknowledged_at": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
         "due": deadlines(alert, cfg) if cfg is not None else None,

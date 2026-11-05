@@ -1,4 +1,4 @@
-import { ExternalLink, Layers, List, X } from "lucide-react";
+import { ExternalLink, Layers, List, Ticket, X } from "lucide-react";
 import { Siren } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -441,6 +441,12 @@ export default function Alerts() {
                     <div className="muted small">{a.assignee ?? "non assignée"}</div>
                   )}
                   <ToolStateLine alert={a} />
+                  {a.ticket && (
+                    <div className="tool-state small">
+                      <Ticket size={11} />
+                      <a href={a.ticket.url} target="_blank" rel="noopener noreferrer">Ticket n° {a.ticket.id}</a> : {a.ticket.label}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {a.reference && (
