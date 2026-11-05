@@ -253,7 +253,7 @@ maintenant ».
 ```bash
 docker compose exec -T api python - < tools/dev_seed_user.py > .dev-credentials.json   # compte de test local
 python tools/replay_vpn_attack.py      # botnet de 200 IP + 3 utilisateurs légitimes en difficulté
-python tools/smoke_api.py              # 22 contrôles : connexion en 2 étapes, anti-rejeu, CSRF, clôtures, en-têtes
+python tools/smoke_api.py              # contrôles sur la vraie base : connexion en 2 étapes, anti-rejeu, CSRF, clôtures, en-têtes
 python tools/dev_ai_check.py gemma4:26b-a4b-it-qat   # analyse réelle d'une alerte avec l'Ollama local
 docker build --target test -t minisoc-test backend && docker run --rm minisoc-test   # tests unitaires
 ```

@@ -1,11 +1,12 @@
 import { type ComponentType, Suspense, createContext, lazy, useCallback, useContext, useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
   Ban, ExternalLink, FileChartColumn, FilterX, LayoutDashboard, ListChecks, LogOut, MonitorPlay, Moon, Plug, Radar,
   ChartNoAxesCombined, ScrollText, Settings as SettingsIcon, ShieldAlert, Siren, Sparkles, Sun, UserCog, Users as UsersIcon,
   type LucideIcon, Boxes, Bug, Crosshair, PanelLeftClose, PanelLeftOpen, Search as SearchIcon,
 } from "lucide-react";
 import { api } from "./api";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { applyTheme, storedTheme, type Theme } from "./theme";
 import type { User } from "./types";
 import Login from "./pages/Login";
@@ -142,7 +143,7 @@ export default function App() {
   // L'écran mural a son propre mode d'accès (jeton d'affichage), hors session interactive
   if (window.location.pathname.startsWith("/wall")) {
     document.documentElement.dataset.theme = "dark"; // écran de supervision : toujours sombre
-    return <Suspense fallback={<div className="splash">Chargement…</div>}><Wall /></Suspense>;
+    return <ErrorBoundary resetKey="wall"><Suspense fallback={<div className="splash">Chargement…</div>}><Wall /></Suspense></ErrorBoundary>;
   }
   return <InteractiveApp />;
 }
@@ -181,6 +182,7 @@ function Shell({ user, setUser, theme, setTheme }: {
   setTheme: (t: Theme) => void;
 }) {
   const counts = useNavCounts();
+  const location = useLocation();
   // Menu rétractable (icônes seules), mémorisé sur ce poste
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("minisoc.sidebar.collapsed") === "1");
   const toggleSidebar = () => {
@@ -264,6 +266,7 @@ function Shell({ user, setUser, theme, setTheme }: {
           </div>
         </aside>
         <main className="content">
+          <ErrorBoundary resetKey={location.pathname + location.search}>
           <Suspense fallback={<p className="muted">Chargement…</p>}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -293,6 +296,7 @@ function Shell({ user, setUser, theme, setTheme }: {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
     </UserContext.Provider>

@@ -3,7 +3,8 @@
     python tools/smoke_api.py [https://localhost]
 
 Vérifie : connexion mot de passe + TOTP, anti-rejeu TOTP, protection CSRF, règles de clôture des alertes,
-recherche d'événements, exceptions, en-têtes de sécurité. Aucune dépendance externe.
+recherche d'événements, exceptions, en-têtes de sécurité, puis filtres d'alertes, alertes liées et tickets
+(`smoke_alerts.py`, lecture seule). Aucune dépendance externe.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+import smoke_alerts
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -132,6 +135,8 @@ check("exception sans justification suffisante refusée", status == 422, status)
 
 status, _, _ = call("GET", "/api/docs")
 check("documentation de l'API non exposée", status == 404, status)
+
+smoke_alerts.run(call, check)
 
 status, _, _ = call("POST", "/api/auth/logout")
 status2, _, _ = call("GET", "/api/auth/me")

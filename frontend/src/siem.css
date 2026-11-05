@@ -639,3 +639,7 @@ a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
 /* Fiche d'alerte : clôture rapide et commentaires types */
 .quick-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .quick-choices .view-chip { text-align: left; }
+
+/* Garde-fou d'écran */
+.page-error { max-width: 760px; margin-top: 12px; }
+.page-error p { margin: 0; overflow-wrap: anywhere; }
