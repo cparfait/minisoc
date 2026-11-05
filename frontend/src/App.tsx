@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { type ComponentType, Suspense, createContext, lazy, useCallback, useContext, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   Ban, ExternalLink, FileChartColumn, FilterX, LayoutDashboard, ListChecks, LogOut, MonitorPlay, Moon, Plug, Radar,
@@ -9,29 +9,50 @@ import { api } from "./api";
 import { applyTheme, storedTheme, type Theme } from "./theme";
 import type { User } from "./types";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Alerts from "./pages/Alerts";
-import AlertDetail from "./pages/AlertDetail";
-import Events from "./pages/Events";
-import Integrations from "./pages/Integrations";
-import Rules from "./pages/Rules";
-import Exceptions from "./pages/Exceptions";
-import Wall from "./pages/Wall";
-import Settings from "./pages/Settings";
-import Users from "./pages/Users";
-import Assistant from "./pages/Assistant";
-import Blocks from "./pages/Blocks";
-import Veille from "./pages/Veille";
-import Vulnerabilities from "./pages/Vulnerabilities";
-import Accounts from "./pages/Accounts";
-import Incidents from "./pages/Incidents";
-import Reports from "./pages/Reports";
-import IncidentDetail from "./pages/IncidentDetail";
-import Assets from "./pages/Assets";
-import AssetDetail from "./pages/AssetDetail";
-import Iocs from "./pages/Iocs";
-import Search from "./pages/Search";
-import Stats from "./pages/Stats";
+const RELOADED_KEY = "minisoc.chunk.reloaded";
+
+/** Page chargée à la demande. Après une mise à jour, un onglet resté ouvert réclame d'anciens fichiers : on recharge
+ * une fois, puis on l'explique plutôt que de laisser un écran vide. */
+function page(load: () => Promise<{ default: ComponentType }>) {
+  return lazy(async () => {
+    try {
+      const module = await load();
+      sessionStorage.removeItem(RELOADED_KEY);
+      return module;
+    } catch {
+      if (!sessionStorage.getItem(RELOADED_KEY)) {
+        sessionStorage.setItem(RELOADED_KEY, "1");
+        window.location.reload();
+        return new Promise<never>(() => undefined);
+      }
+      return { default: () => <p className="form-error">Cet écran n'a pas pu être chargé : vérifier la connexion, puis recharger la page.</p> };
+    }
+  });
+}
+
+const Dashboard = page(() => import("./pages/Dashboard"));
+const Alerts = page(() => import("./pages/Alerts"));
+const AlertDetail = page(() => import("./pages/AlertDetail"));
+const Events = page(() => import("./pages/Events"));
+const Integrations = page(() => import("./pages/Integrations"));
+const Rules = page(() => import("./pages/Rules"));
+const Exceptions = page(() => import("./pages/Exceptions"));
+const Wall = page(() => import("./pages/Wall"));
+const Settings = page(() => import("./pages/Settings"));
+const Users = page(() => import("./pages/Users"));
+const Assistant = page(() => import("./pages/Assistant"));
+const Blocks = page(() => import("./pages/Blocks"));
+const Veille = page(() => import("./pages/Veille"));
+const Vulnerabilities = page(() => import("./pages/Vulnerabilities"));
+const Accounts = page(() => import("./pages/Accounts"));
+const Incidents = page(() => import("./pages/Incidents"));
+const Reports = page(() => import("./pages/Reports"));
+const IncidentDetail = page(() => import("./pages/IncidentDetail"));
+const Assets = page(() => import("./pages/Assets"));
+const AssetDetail = page(() => import("./pages/AssetDetail"));
+const Iocs = page(() => import("./pages/Iocs"));
+const Search = page(() => import("./pages/Search"));
+const Stats = page(() => import("./pages/Stats"));
 
 const UserContext = createContext<User | null>(null);
 export const useUser = () => useContext(UserContext);
@@ -121,7 +142,7 @@ export default function App() {
   // L'écran mural a son propre mode d'accès (jeton d'affichage), hors session interactive
   if (window.location.pathname.startsWith("/wall")) {
     document.documentElement.dataset.theme = "dark"; // écran de supervision : toujours sombre
-    return <Wall />;
+    return <Suspense fallback={<div className="splash">Chargement…</div>}><Wall /></Suspense>;
   }
   return <InteractiveApp />;
 }
@@ -243,6 +264,7 @@ function Shell({ user, setUser, theme, setTheme }: {
           </div>
         </aside>
         <main className="content">
+          <Suspense fallback={<p className="muted">Chargement…</p>}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/alerts" element={<Alerts />} />
@@ -270,6 +292,7 @@ function Shell({ user, setUser, theme, setTheme }: {
             {user.role === "admin" && <Route path="/settings" element={<Settings />} />}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </main>
       </div>
     </UserContext.Provider>

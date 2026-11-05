@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -164,10 +165,21 @@ async def machines_by_detection(db: AsyncSession) -> dict:
     return spread(await _open_light(db))
 
 
+OPEN_CONTEXT_SECONDS = 10
+_open_context_cache: tuple[float, tuple[dict, dict]] | None = None
+
+
 async def open_context(db: AsyncSession) -> tuple[dict, dict]:
-    """(machines par détection, outils de détection ayant signalé chaque machine) sur les alertes ouvertes."""
+    """(machines par détection, outils de détection ayant signalé chaque machine) sur les alertes ouvertes.
+    Gardé quelques secondes : il sert à chaque requête d'alertes, et ces nombres n'orientent que la priorité."""
+    global _open_context_cache
+    now = time.monotonic()
+    if _open_context_cache and _open_context_cache[0] > now:
+        return _open_context_cache[1]
     light = await _open_light(db)
-    return spread(light), tools_by_host(light)
+    context = spread(light), tools_by_host(light)
+    _open_context_cache = (now + OPEN_CONTEXT_SECONDS, context)
+    return context
 
 
 SORTS = {
@@ -280,6 +292,57 @@ async def list_alerts(
     rows = await db.scalars(stmt.order_by(*SORTS.get(sort, SORTS["recent"])).limit(limit).offset(offset))
     items = [serialize(a, machines, index, cfg, tools) for a in rows.all()]
     return {"total": total, "by_status": by_status, "items": items}
+
+
+RELATED_PER_KIND = 3
+RELATED_LIMIT = 30
+
+
+def related_lookups(hosts: list[str], accounts: list[str], ips: list[str]) -> list[tuple[str, str]]:
+    """(expression régulière, libellé) de chaque valeur recherchée, les premières de chaque type."""
+    wanted = (("host", "machine", hosts), ("user", "compte", accounts), ("ip", "IP", ips))
+    return [
+        (cites(kind, value), f"{label} {value.strip()}")
+        for kind, label, values in wanted
+        for value in [v for v in values if v.strip()][:RELATED_PER_KIND]
+    ]
+
+
+def related_labels(alert: Alert, lookups: list[tuple[str, str]]) -> list[str]:
+    """Valeurs recherchées que cite l'alerte, sur le même texte que le filtre SQL (JSONB : mêmes espaces)."""
+    text = f"{alert.entity_key} {json.dumps(alert.details or {}, ensure_ascii=False)}"
+    return [label for pattern, label in lookups if re.search(pattern, text, re.IGNORECASE)]
+
+
+@router.get("/related")
+async def related_alerts(
+    host: list[str] = Query([]),
+    account: list[str] = Query([]),
+    ip: list[str] = Query([]),
+    exclude: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(ANY_USER),
+):
+    """Alertes ouvertes citant ces machines, comptes ou IP, en une seule requête. Les plus récentes à la lecture,
+    puis les plus liées et les plus prioritaires à l'affichage. `truncated` : d'autres alertes existent au-delà."""
+    lookups = related_lookups(host, account, ip)
+    if not lookups:
+        return {"items": [], "truncated": False}
+    stmt = select(Alert).where(
+        Alert.status.in_(OPEN_STATUSES),
+        (Alert.entity_key + " " + cast(Alert.details, String)).op("~*")("|".join(p for p, _label in lookups)),
+    )
+    if exclude is not None:
+        stmt = stmt.where(Alert.id != exclude)
+    rows = (await db.scalars(stmt.order_by(Alert.last_seen.desc()).limit(RELATED_LIMIT + 1))).all()
+    machines, tools = await open_context(db)
+    index = await ASSETS.ensure(db)
+    cfg = await settings_store.load(db)
+    items = [
+        {**serialize(a, machines, index, cfg, tools), "via": related_labels(a, lookups)} for a in rows[:RELATED_LIMIT]
+    ]
+    items.sort(key=lambda a: (-len(a["via"]), -a["priority"]))
+    return {"items": items, "truncated": len(rows) > RELATED_LIMIT}
 
 
 @router.get("/facets")

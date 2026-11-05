@@ -148,6 +148,11 @@ export default function Alerts() {
   const pages = data ? Math.ceil(data.total / pageSize) : 0;
   const listSearch = params.toString() ? `?${params.toString()}` : "";
 
+  // Fiche préparée d'avance : son ouverture ne dépend pas du téléchargement de la page
+  useEffect(() => {
+    void import("./AlertDetail").catch(() => undefined);
+  }, []);
+
   // Le détail d'une alerte connaît ainsi ses voisines et le chemin du retour
   useEffect(() => {
     if (!data) return;
