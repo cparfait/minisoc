@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     modulePreload: { polyfill: false }, // aucun script en ligne : compatible avec la CSP stricte
+    assetsInlineLimit: 0, // aucune police en ligne : la CSP n'autorise que font-src 'self'
     sourcemap: false,
   },
   server: {
