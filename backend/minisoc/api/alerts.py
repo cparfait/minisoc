@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -17,10 +17,11 @@ from minisoc.api.deps import ANALYST, ANY_USER, client_ip, get_db
 from minisoc.assets import INDEX as ASSETS
 from minisoc.assets import AssetIndex, criticality_reasons
 from minisoc.detections import CATEGORY_LABEL, priority, spread, tools_by_host
-from minisoc.ecs import SEVERITY_BY_NAME, severity_name
+from minisoc.ecs import FIELDS, SEVERITY_BY_NAME, severity_name
 from minisoc.followup import FollowupError, apply_update, deadlines, notify_assignee, overdue_filter
 from minisoc.frameworks import describe
-from minisoc.models import ALERT_STATUSES, OPEN_STATUSES, Alert, AlertHistory, User
+from minisoc.identity import same
+from minisoc.models import ALERT_STATUSES, OPEN_STATUSES, Alert, AlertHistory, RuleException, User
 from minisoc.response import ninja_tickets
 from minisoc.rules.loader import load_playbook
 from minisoc.settings_store import store as settings_store
@@ -375,6 +376,63 @@ async def assignees(db: AsyncSession = Depends(get_db), _: User = Depends(ANY_US
     }
 
 
+FP_WINDOW_DAYS = 90
+FP_SUGGEST_FROM = 2  # clôtures en faux positif avant de proposer une exception
+
+
+def exception_target(entity_key: str) -> tuple[str, str] | None:
+    """Champ et valeur qu'une exception couvrirait : la détection de l'outil si l'entité en cite une (une exception sur
+    la machine ferait taire toutes les détections de ce poste), sinon le dernier élément de l'entité."""
+    parts = {f: v for f, v in entity_parts(entity_key).items() if f in FIELDS and f != "event.module"}
+    if "rule.name" in parts:
+        return "rule.name", parts["rule.name"]
+    return next(reversed(parts.items()), None)
+
+
+def closed_as_false_positive(alert_id: int, rule_id: str, entity_key: str, field: str, value: str, since: datetime):
+    """Autres alertes de cette règle jugées faux positif : même détection sur toute machine, sinon même entité."""
+    same_target = (
+        Alert.entity_key.endswith(f"rule.name={value}", autoescape=True)
+        if field == "rule.name"
+        else Alert.entity_key == entity_key
+    )
+    return (
+        Alert.rule_id == rule_id, Alert.status == "false_positive", Alert.id != alert_id, Alert.updated_at >= since,
+        same_target,
+    )
+
+
+async def exception_hint(db: AsyncSession, alert: Alert) -> dict | None:
+    """Proposition d'exception : alerte ouverte, déjà jugée plusieurs fois faux positif, et rien ne la couvre encore."""
+    target = exception_target(alert.entity_key) if alert.status in OPEN_STATUSES else None
+    if target is None:
+        return None
+    field, value = target
+    now = datetime.now(timezone.utc)
+    where = closed_as_false_positive(alert.id, alert.rule_id, alert.entity_key, field, value,
+                                     now - timedelta(days=FP_WINDOW_DAYS))
+    count, last_at = (await db.execute(select(func.count(), func.max(Alert.updated_at)).where(*where))).one()
+    if count < FP_SUGGEST_FROM:
+        return None
+    active = await db.scalars(
+        select(RuleException).where(
+            RuleException.rule_id.in_((alert.rule_id, "*")), RuleException.field == field,
+            RuleException.expires_at > now,
+        )
+    )
+    if any(same(field, value, e.value) for e in active.all()):
+        return None
+    comment = await db.scalar(
+        select(AlertHistory.detail)
+        .join(Alert, AlertHistory.alert_id == Alert.id)
+        .where(*where, AlertHistory.action == "comment")
+        .order_by(AlertHistory.ts.desc())
+        .limit(1)
+    )
+    return {"count": count, "days": FP_WINDOW_DAYS, "field": field, "value": value,
+            "last_at": last_at.isoformat() if last_at else None, "last_comment": comment or ""}
+
+
 @router.get("/{alert_id}")
 async def get_alert(alert_id: int, request: Request, db: AsyncSession = Depends(get_db), _: User = Depends(ANY_USER)):
     alert = await db.get(Alert, alert_id)
@@ -391,6 +449,7 @@ async def get_alert(alert_id: int, request: Request, db: AsyncSession = Depends(
     return {
         **serialize(alert, machines, await ASSETS.ensure(db), await settings_store.load(db), tools),
         "category_label": CATEGORY_LABEL.get((alert.details or {}).get("category") or "threat"),
+        "exception_hint": await exception_hint(db, alert),
         "details": alert.details,
         "rule": {
             "description": rule.description if rule else "",

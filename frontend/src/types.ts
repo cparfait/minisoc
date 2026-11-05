@@ -154,7 +154,17 @@ export interface EventRow {
   raw: string;
 }
 
+export interface ExceptionHint {
+  count: number;
+  days: number;
+  field: string;
+  value: string;
+  last_at: string | null;
+  last_comment: string;
+}
+
 export interface AlertDetail extends Alert {
+  exception_hint?: ExceptionHint | null;
   details: Record<string, unknown>;
   rule: { description: string; type: string; mitre: MitreTechnique[] };
   playbook: string;

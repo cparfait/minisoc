@@ -1,5 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { api } from "../api";
+import { formatDate } from "../labels";
+import type { ExceptionHint } from "../types";
 
 const inDays = (days: number) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
 
@@ -7,20 +9,27 @@ const inDays = (days: number) => new Date(Date.now() + days * 86400000).toISOStr
  * Exception pré-remplie à partir d'une alerte (faux positif connu) : règle, champ et valeur de l'entité.
  * Option : clôturer l'alerte en « Faux positif » avec la justification comme commentaire.
  */
-export default function ExceptionFromAlert({ alertId, ruleId, entityKey, onDone }: {
+export default function ExceptionFromAlert({ alertId, ruleId, entityKey, hint, onDone }: {
   alertId: number;
   ruleId: string;
   entityKey: string;
+  hint?: ExceptionHint | null; // faux positifs répétés : l'exception est proposée, l'analyste la relit et la valide
   onDone: () => void;
 }) {
   const parts = useMemo(
-    () => entityKey.split(" | ").map((p) => p.split("=", 2)).filter(([f, v]) => f && v && !f.startsWith("*")),
+    () => entityKey.split(" | ").map((p) => {
+      const at = p.indexOf("=");
+      return [p.slice(0, at), p.slice(at + 1)];
+    }).filter(([f, v]) => f && v && !f.startsWith("*")),
     [entityKey],
   );
+  const suggested = hint ? parts.findIndex(([f]) => f === hint.field) : -1;
   const [open, setOpen] = useState(false);
-  const [choice, setChoice] = useState(0);
+  const [choice, setChoice] = useState(Math.max(suggested, 0));
   const [scope, setScope] = useState(ruleId);
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(
+    hint ? `Faux positif répété (${hint.count} clôtures en ${hint.days} jours)${hint.last_comment ? ` : ${hint.last_comment}` : "."}`.slice(0, 500) : "",
+  );
   const [expires, setExpires] = useState(inDays(90));
   const [close, setClose] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -53,6 +62,23 @@ export default function ExceptionFromAlert({ alertId, ruleId, entityKey, onDone 
     }
   };
 
+  if (!open && hint) {
+    return (
+      <div className="exception-hint stack">
+        <div>
+          <strong>Déjà clôturée {hint.count} fois en faux positif</strong>
+          <div className="muted small">
+            sur {hint.days} jours{hint.last_at && `, la dernière le ${formatDate(hint.last_at)}`}
+          </div>
+          {hint.last_comment && <div className="small">Dernier commentaire : « {hint.last_comment} »</div>}
+        </div>
+        <div>
+          <button type="button" className="primary" onClick={() => setOpen(true)}>Préparer une exception</button>
+        </div>
+      </div>
+    );
+  }
+
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}>
@@ -63,6 +89,9 @@ export default function ExceptionFromAlert({ alertId, ruleId, entityKey, onDone 
 
   return (
     <form className="exception-inline stack" onSubmit={submit}>
+      {suggested >= 0 && choice === suggested && hint?.field === "rule.name" && (
+        <p className="muted small">Portée proposée : cette détection, sur toutes les machines. À restreindre si besoin.</p>
+      )}
       <div className="row">
         <label>
           Ne plus alerter quand

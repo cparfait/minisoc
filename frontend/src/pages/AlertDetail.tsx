@@ -110,6 +110,11 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
   const open = !CLOSED.includes(alert.status);
   const cited = citedValues(alert, entity, sample, groupedIps);
   const stormy = !!details.storm || grouped.length > 0;
+  const exceptionBox = editable && open && (
+    <div className="exception-box">
+      <ExceptionFromAlert alertId={alert.id} ruleId={alert.rule_id} entityKey={alert.entity_key} hint={alert.exception_hint} onDone={reload} />
+    </div>
+  );
 
   return (
     <>
@@ -183,6 +188,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
           <Treatment alert={alert} editable={editable} next={neighbours.next} onDone={reload} />
 
           <Card title="Que faire" icon={Hand} className="alert-actions">
+            {alert.exception_hint && exceptionBox /* proposée : à voir sans défiler */}
             <Fold title={toolActionsTitle(alert)} icon={ExternalLink} className="rail-fold">
               <ToolActions alert={alert} />
             </Fold>
@@ -207,11 +213,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
                 <IncidentPicker alertIds={[alert.id]} defaultTitle={alert.title} onDone={reload} />
               </Fold>
             ) : null}
-            {editable && open && (
-              <div className="exception-box">
-                <ExceptionFromAlert alertId={alert.id} ruleId={alert.rule_id} entityKey={alert.entity_key} onDone={reload} />
-              </div>
-            )}
+            {!alert.exception_hint && exceptionBox}
           </Card>
 
           <Fold title="Fiche réflexe" icon={BookOpen} className="card playbook" defaultOpen>

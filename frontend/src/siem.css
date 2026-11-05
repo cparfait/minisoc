@@ -643,3 +643,8 @@ a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
 /* Garde-fou d'écran */
 .page-error { max-width: 760px; margin-top: 12px; }
 .page-error p { margin: 0; overflow-wrap: anywhere; }
+
+/* Fiche d'alerte : exception proposée après des faux positifs répétés */
+.exception-hint { padding: 10px 12px; border-radius: var(--radius-sm); border-left: 3px solid var(--medium); background: var(--panel-2); font-size: 13px; }
+.exception-hint .small { overflow-wrap: anywhere; }
+.alert-actions > h2 + .exception-box { border-top: none; padding-top: 0; margin-bottom: 10px; }

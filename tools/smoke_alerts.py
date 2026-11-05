@@ -73,6 +73,8 @@ def run(call, check) -> None:
     status, facets, _ = call("GET", "/api/alerts/facets")
     check("filtres proposés : état des tickets NinjaOne", status == 200 and "tickets" in facets, status)
     if items:
+        status, detail, _ = call("GET", f"/api/alerts/{items[0]['id']}")
+        check("fiche : proposition d'exception calculée", status == 200 and "exception_hint" in detail, status)
         status, view, _ = call("GET", f"/api/response/ticket/{items[0]['id']}")
         check("texte proposé pour un ticket", status == 200 and view["draft"]["subject"], status)
         if status == 200 and not view["enabled"]:
