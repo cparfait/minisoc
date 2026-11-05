@@ -366,6 +366,63 @@ export default function Triage({ events, host = null, onReset }: { events: Event
   );
 }
 
+export interface ThreatState {
+  tone: "stopped" | "partial" | "open";
+  title: string;
+  detail: string;
+}
+
+/** La menace est-elle stoppée ? Mêmes règles que la levée de doute et la fiche Bitdefender, sur les détections
+ * conservées. `null` quand les événements ne le disent pas (autres outils) : ne rien affirmer. */
+export function threatState(events: EventRow[]): ThreatState | null {
+  let stopped = 0;
+  let partial = 0;
+  let notStopped = 0; // l'outil dit explicitement ne pas avoir bloqué
+  let noAction = 0; // l'outil n'a rien tenté : peut-être pas stoppée
+  let unknown = 0; // même outil, mais rien sur l'issue
+  const tools = new Set<string>();
+  for (const e of events) {
+    const raw = parse(e.raw);
+    if (e.module === "harfanglab" && raw) {
+      const execution = get(raw, "execution");
+      if (execution === undefined || execution === null) unknown += 1;
+      else if (execution === 0 || execution === "0") notStopped += 1;
+      else stopped += 1;
+    } else if (e.module === "bitdefender") {
+      const action = str(raw, "final_status");
+      if (action === "blocked" || action === "quarantined") stopped += 1;
+      else if (action === "partially_blocked") partial += 1;
+      else if (action === "reported") noAction += 1;
+      else if (e.category !== "malware") continue; // événement sans issue à lire (ni menace, ni décision de l'outil)
+      else if (e.outcome === "failure") notStopped += 1;
+      else stopped += 1;
+    } else continue;
+    tools.add(moduleLabel(e.module));
+  }
+  const known = stopped + partial + notStopped + noAction;
+  if (!known) return null;
+  const by = [...tools].join(", ");
+  const unknownNote = unknown ? ` Issue inconnue pour ${unknown} autre(s).` : "";
+  if (stopped === known) {
+    if (unknown) {
+      return { tone: "partial", title: "Menace stoppée en partie", detail: `${stopped} détection(s) bloquée(s) par ${by}.${unknownNote}` };
+    }
+    return { tone: "stopped", title: "Menace stoppée", detail: `${stopped === 1 ? "La détection a été bloquée" : `Les ${stopped} détections ont été bloquées`} par ${by}.` };
+  }
+  if (!stopped && !partial) {
+    if (!notStopped) {
+      return { tone: "open", title: "Menace peut-être pas stoppée", detail: `Aucune action automatique de ${by} sur ${noAction} détection(s) : vérifier la machine.${unknownNote}` };
+    }
+    return {
+      tone: "open",
+      title: "Menace non stoppée",
+      detail: `${notStopped + noAction} détection(s) sans blocage par ${by} : vérifier la machine.${unknownNote}`,
+    };
+  }
+  const left = [partial && `${partial} bloquée(s) en partie`, notStopped + noAction && `${notStopped + noAction} sans blocage`].filter(Boolean).join(", ");
+  return { tone: "partial", title: "Menace stoppée en partie", detail: `Sur ${known} détection(s) : ${stopped} bloquée(s), ${left} (${by}).${unknownNote}` };
+}
+
 const GZ_ACTION: Record<string, string> = {
   blocked: "bloqué automatiquement par GravityZone",
   partially_blocked: "bloqué en partie (certaines entités seulement)",

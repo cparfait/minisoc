@@ -1,9 +1,9 @@
 import {
   ArrowLeft, Ban, BookOpen, ChevronLeft, ChevronRight, ClipboardCheck, ExternalLink, Hand, History, Layers, ScrollText, ShieldAlert,
-  ShieldCheck, Sparkles, Unplug,
+  ShieldCheck, ShieldHalf, Sparkles, Unplug,
 } from "lucide-react";
 import { type ReactNode, useLayoutEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { type AlertNeighbours, useAlertNeighbours } from "../alertNav";
 import { api } from "../api";
 import { canEdit, useUser } from "../App";
@@ -18,8 +18,9 @@ import Markdown from "../components/Markdown";
 import NinjaTicket from "../components/NinjaTicket";
 import { CategoryBadge, PriorityPill, PriorityReasons } from "../components/Priority";
 import { SourceClosureNote } from "../components/SourceClosure";
+import RelatedAlerts from "../components/RelatedAlerts";
 import { DerivedDetails } from "../components/Risk";
-import Triage, { ToolTriage } from "../components/Triage";
+import Triage, { ToolTriage, threatState } from "../components/Triage";
 import { HostChips, ImpactedHosts } from "../components/Hosts";
 import IncidentPicker, { IncidentBadge } from "../components/IncidentPicker";
 import IsolationPanel from "../components/IsolationPanel";
@@ -45,6 +46,23 @@ function entityParts(entity: string): Record<string, string> {
 
 const distinct = (values: unknown[]) =>
   [...new Set(values.map((v) => String(v ?? "").trim()).filter((v) => v && v !== "?"))];
+
+/** Comptes et IP cités par l'alerte : entité, échantillons, entités regroupées, événements conservés. */
+function citedValues(alert: Detail, entity: Record<string, string>, sample: Record<string, unknown>, groupedIps: string[]) {
+  return {
+    users: distinct([entity["user.name"], sample["user.name"], ...((alert.details.sample_users as string[] | undefined) ?? []), ...alert.events.map((e) => e.user_name)]),
+    ips: distinct([entity["source.ip"], sample["source.ip"], ...((alert.details.sample_ips as string[] | undefined) ?? []), ...groupedIps, ...alert.events.map((e) => e.source_ip)]),
+  };
+}
+
+/** Machines de l'alerte, y compris celles que seuls ses événements citent. */
+function allHosts(alert: Detail): ImpactedHost[] {
+  const known = new Set(alert.hosts.map((h) => h.name.toLowerCase()));
+  return [
+    ...alert.hosts,
+    ...distinct(alert.events.map((e) => e.host_name)).filter((name) => !known.has(name.toLowerCase())).map((name) => ({ name, count: 0, rules: [] })),
+  ];
+}
 
 export default function AlertDetail() {
   const { id } = useParams();
@@ -85,6 +103,8 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
   const blockCandidates = [...new Set([...entityIp, ...((details.sample_ips as string[] | undefined) ?? []), ...groupedIps])];
   const hasMalwareSummary = alert.events.some((e) => e.module === "bitdefender" && e.category === "malware");
   const open = !CLOSED.includes(alert.status);
+  const cited = citedValues(alert, entity, sample, groupedIps);
+  const stormy = !!details.storm || grouped.length > 0;
 
   return (
     <>
@@ -93,7 +113,9 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
 
       <div className="alert-layout">
         <div className="alert-main">
-          <AlertSummary alert={alert} qualification={qualification} entity={entity} sample={sample} groupedIps={groupedIps} />
+          <AlertSummary alert={alert} qualification={qualification} users={cited.users} ips={cited.ips} />
+          {/* Tempête : ses IP sont trop nombreuses et trop diverses pour relier des alertes */}
+          <RelatedAlerts alertId={alert.id} hosts={allHosts(alert).map((h) => h.name)} users={cited.users} ips={stormy ? [] : cited.ips} ipsSkipped={stormy && cited.ips.length > 0} />
 
           <DerivedDetails details={details} />
           {coverage && (
@@ -153,7 +175,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
         </div>
 
         <aside className="alert-rail" aria-label="Traitement et réponse">
-          <Treatment alert={alert} editable={editable} onDone={reload} />
+          <Treatment alert={alert} editable={editable} next={neighbours.next} onDone={reload} />
 
           <Card title="Que faire" icon={Hand} className="alert-actions">
             <Fold title={toolActionsTitle(alert)} icon={ExternalLink} className="rail-fold">
@@ -266,28 +288,32 @@ function LinkedValues({ values, param, none, tags = {} }: { values: string[]; pa
 }
 
 /** L'essentiel, à la même place quelle que soit l'alerte : ce qui s'est passé, le verdict, qui, où, quand. */
-function AlertSummary({ alert, qualification, entity, sample, groupedIps }: {
+function AlertSummary({ alert, qualification, users, ips }: {
   alert: Detail;
   qualification?: Qualification;
-  entity: Record<string, string>;
-  sample: Record<string, unknown>;
-  groupedIps: string[];
+  users: string[];
+  ips: string[];
 }) {
   // Détection de l'outil (alertes reprises d'un outil : entité « … | rule.name=<détection> »)
   const detection = /rule\.name=(.+)$/.exec(alert.entity_key)?.[1] ?? "";
-  const users = distinct([entity["user.name"], sample["user.name"], ...((alert.details.sample_users as string[] | undefined) ?? []), ...alert.events.map((e) => e.user_name)]);
-  const ips = distinct([entity["source.ip"], sample["source.ip"], ...((alert.details.sample_ips as string[] | undefined) ?? []), ...groupedIps, ...alert.events.map((e) => e.source_ip)]);
   const countries = Object.fromEntries(alert.events.filter((e) => e.source_ip && e.source_country).map((e) => [e.source_ip, e.source_country as string]));
-  const known = new Set(alert.hosts.map((h) => h.name.toLowerCase()));
-  const hosts: ImpactedHost[] = [
-    ...alert.hosts,
-    ...distinct(alert.events.map((e) => e.host_name)).filter((name) => !known.has(name.toLowerCase())).map((name) => ({ name, count: 0, rules: [] })),
-  ];
+  const hosts = allHosts(alert);
+  const threat = threatState(alert.events);
+  const ThreatIcon = threat?.tone === "stopped" ? ShieldCheck : threat?.tone === "partial" ? ShieldHalf : ShieldAlert;
   const tactics = [...new Set(alert.rule.mitre.flatMap((t) => t.tactics.map((x) => x.name)))];
 
   return (
     <section className="card alert-summary">
       <h2><Layers size={15} strokeWidth={2} /> Ce qui s'est passé</h2>
+      {threat && (
+        <div className={`threat-state threat-${threat.tone}`}>
+          <ThreatIcon size={18} />
+          <div>
+            <strong>{threat.title}</strong> <span>{threat.detail}</span>
+            <div className="muted small">D'après les détections conservées sur l'alerte (50 au plus) ; l'outil d'origine fait foi.</div>
+          </div>
+        </div>
+      )}
       {detection && (
         <p className="summary-detection">
           <DetectionName name={detection} />
@@ -377,8 +403,9 @@ function AlertSummary({ alert, qualification, entity, sample, groupedIps }: {
 }
 
 /** Statut, responsable, échéances, commentaire et historique : à portée de main pendant la lecture. */
-function Treatment({ alert, editable, onDone }: { alert: Detail; editable: boolean; onDone: () => Promise<void> }) {
+function Treatment({ alert, editable, next, onDone }: { alert: Detail; editable: boolean; next: number | null; onDone: () => Promise<void> }) {
   const user = useUser();
+  const navigate = useNavigate();
   const assignees = useAssignees();
   const [status, setStatus] = useState<AlertStatus | "">("");
   const [comment, setComment] = useState("");
@@ -388,12 +415,23 @@ function Treatment({ alert, editable, onDone }: { alert: Detail; editable: boole
   const nextStatus = status || alert.status;
   const needsComment = CLOSED.includes(nextStatus) && nextStatus !== alert.status;
   const latest = alert.history[alert.history.length - 1];
+  const nothingToSave = saving || (needsComment && !comment.trim()) || (!comment.trim() && nextStatus === alert.status);
+  const formBody = () => ({
+    ...(status && status !== alert.status ? { status } : {}),
+    ...(status === "waiting" ? { waiting_reason: waitingReason } : {}),
+    comment: comment.trim() || undefined,
+  });
 
-  const save = async (body: Record<string, unknown>) => {
+  /** `thenOpen` : alerte à ouvrir une fois la sauvegarde réussie ; en cas d'échec, on reste ici avec le message. */
+  const save = async (body: Record<string, unknown>, thenOpen?: number) => {
     setSaving(true);
     setSaveError(null);
     try {
       await api(`/alerts/${alert.id}`, { method: "PATCH", body });
+      if (thenOpen !== undefined) {
+        navigate(`/alerts/${thenOpen}`);
+        return;
+      }
       setComment("");
       setStatus("");
       await onDone();
@@ -446,11 +484,7 @@ function Treatment({ alert, editable, onDone }: { alert: Detail; editable: boole
           className="stack"
           onSubmit={(e) => {
             e.preventDefault();
-            save({
-              ...(status && status !== alert.status ? { status } : {}),
-              ...(status === "waiting" ? { waiting_reason: waitingReason } : {}),
-              comment: comment.trim() || undefined,
-            });
+            save(formBody());
           }}
         >
           <div className="treatment-fields">
@@ -491,13 +525,15 @@ function Treatment({ alert, editable, onDone }: { alert: Detail; editable: boole
           </label>
           {saveError && <p className="form-error">{saveError}</p>}
           <div className="treatment-buttons">
-            <button
-              type="submit"
-              className="primary"
-              disabled={saving || (needsComment && !comment.trim()) || (!comment.trim() && nextStatus === alert.status)}
-            >
+            <button type="submit" className="primary" disabled={nothingToSave}>
               Enregistrer
             </button>
+            {next !== null && (
+              <button type="button" className="primary" disabled={nothingToSave} title="Enregistrer, puis ouvrir l'alerte suivante de la liste"
+                onClick={() => save(formBody(), next)}>
+                Enregistrer et suivante
+              </button>
+            )}
             {alert.assignee !== user?.username && (
               <button type="button" disabled={saving} onClick={() => save({ assignee: user?.username, status: alert.status === "new" ? "in_progress" : undefined })}>
                 Me l'assigner

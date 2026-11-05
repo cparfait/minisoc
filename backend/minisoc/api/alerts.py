@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -43,13 +44,26 @@ HAS_HOST = _HOST_AT + r'[^ |?"]'
 HAS_SERVER = _HOST_AT + SERVER_NAME
 
 
+_CITED_FIELDS = {
+    "host": (r"host\.name", "sample_hosts"),
+    "user": (r"user\.name", "sample_users"),
+    "ip": (r"source\.ip", "sample_ips"),
+}
+
+
 def cites(kind: str, name: str) -> str:
-    """Expression régulière (PostgreSQL) : l'alerte cite exactement cette machine (« host ») ou ce compte (« user »)
-    dans son entité, ses entités regroupées, son événement déclencheur ou ses échantillons — « PC-1 » ne correspond
-    pas à « PC-10 »."""
-    value = re.escape(name.strip())
-    sample = "sample_hosts" if kind == "host" else "sample_users"
-    return rf'({kind}\.name={value}( \||"|$)|"{kind}\.name": "{value}"|"{sample}": \[([^]]*", )?"{value}")'
+    """Expression régulière (PostgreSQL) : l'alerte cite exactement cette machine (« host »), ce compte (« user ») ou
+    cette adresse (« ip ») dans son entité, ses entités regroupées, son événement déclencheur ou ses échantillons —
+    « PC-1 » ne correspond pas à « PC-10 ». S'applique à « entité + espace + détails JSON » : en fin d'entité, la valeur
+    est suivie de « {" ; dans le JSON, une barre oblique inverse (DOMAINE\\compte) est doublée."""
+    field, sample = _CITED_FIELDS[kind]
+    name = name.strip()
+    value = re.escape(name)
+    encoded = re.escape(json.dumps(name, ensure_ascii=False)[1:-1])
+    return (
+        rf'({field}=({value}|{encoded})( \|| \{{|"|$)'
+        rf'|"{field}": "{encoded}"|"{sample}": \[([^]]*", )?"{encoded}")'
+    )
 
 
 def impacted_hosts(alert: Alert) -> list[dict]:
@@ -184,6 +198,7 @@ async def list_alerts(
     host: str | None = Query(None, max_length=256, description="alertes citant cette machine (nom exact)"),
     overdue: bool = Query(False, description="seulement les alertes en retard sur leur échéance"),
     account: str | None = Query(None, max_length=256, description="alertes citant ce compte (nom exact)"),
+    ip: str | None = Query(None, max_length=64, description="alertes citant cette adresse IP source (adresse exacte)"),
     sort: str = Query("recent"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -231,6 +246,8 @@ async def list_alerts(
         filters.append((Alert.entity_key + " " + cast(Alert.details, String)).op("~*")(cites("host", host)))
     if account:
         filters.append((Alert.entity_key + " " + cast(Alert.details, String)).op("~*")(cites("user", account)))
+    if ip:
+        filters.append((Alert.entity_key + " " + cast(Alert.details, String)).op("~*")(cites("ip", ip)))
     if detection:
         escaped = detection.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         # Entité terminée par la détection, ou entité d'un regroupement (clé JSON suivie d'un guillemet)

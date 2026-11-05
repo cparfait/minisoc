@@ -615,6 +615,23 @@ a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
   .alert-head { position: static; margin: -16px -16px 12px; padding: 10px 16px; }
 }
 
+/* Fiche d'alerte : la menace est-elle stoppée ? */
+.threat-state { --c: var(--medium); display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.threat-state > svg { flex: none; margin-top: 1px; color: var(--c); }
+.threat-state strong { color: color-mix(in srgb, var(--c) 75%, var(--text)); }
+.threat-stopped { --c: var(--good); }
+.threat-partial { --c: var(--high); }
+.threat-open { --c: var(--critical); }
+
+/* Fiche d'alerte : alertes liées */
+.related-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; max-height: 280px; overflow-y: auto; }
+.related-list li { display: flex; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); }
+.related-list li:last-child { border-bottom: none; }
+.related-main { flex: 1; min-width: 0; }
+.related-main > a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.related-main > .small { overflow-wrap: anywhere; }
+.related-note { margin: 8px 0 0; }
+
 /* Ticket NinjaOne d'une alerte */
 .ticket-state { display: grid; gap: 4px; justify-items: start; }
 .ticket-state .button { margin-top: 6px; }

@@ -137,6 +137,56 @@ def test_host_kind_patterns():
     assert kind('source.ip=203.0.113.7 {"sample_users": ["a"]}') is None
 
 
+def test_alert_cites_value_at_end_of_entity():
+    import re
+
+    from minisoc.api.alerts import cites
+
+    # L'expression s'applique à « entité + espace + détails JSON »
+    account = re.compile(cites("user", "bob"), re.I)
+    assert account.search('user.name=bob {"sample": {}}')
+    assert account.search("user.name=bob")
+    assert not account.search('user.name=bobby {"sample": {}}')
+    jean = re.compile(cites("user", "Jean"), re.I)
+    assert not jean.search('user.name=Jean Dupont {"sample": {}}')
+    assert re.search(cites("user", "Jean Dupont"), 'user.name=Jean Dupont {"sample": {}}', re.I)
+
+
+def test_alert_cites_account_with_domain():
+    import json
+    import re
+
+    from minisoc.api.alerts import cites
+
+    account = re.compile(cites("user", "MAIRIE\\j.dupont"), re.I)
+    # La barre oblique inverse est simple dans l'entité, doublée dans le JSON
+    assert account.search('user.name=MAIRIE\\j.dupont {"sample": {}}')
+    details = json.dumps({"sample": {"user.name": "MAIRIE\\j.dupont"}})
+    assert account.search(f"source.ip=1.2.3.4 {details}")
+    details = json.dumps({"entities": {"user.name=MAIRIE\\j.dupont": 2}})
+    assert account.search(f"*regroupement* {details}")
+    assert account.search("x " + json.dumps({"sample_users": ["a", "MAIRIE\\j.dupont"]}))
+    assert not account.search('user.name=j.dupont {"sample": {}}')
+
+
+def test_alert_cites_exact_ip():
+    import re
+
+    from minisoc.api.alerts import cites
+
+    ip = re.compile(cites("ip", "1.2.3.4"), re.I)
+    assert ip.search("source.ip=1.2.3.4 {}")
+    assert ip.search("source.ip=1.2.3.4 | user.name=bob {}")
+    assert ip.search('x {"sample": {"source.ip": "1.2.3.4"}}')
+    assert ip.search('x {"sample_ips": ["9.9.9.9", "1.2.3.4"]}')
+    assert ip.search('*regroupement* {"entities": {"source.ip=1.2.3.4": 3}}')
+    assert not ip.search("source.ip=1.2.3.45 {}")
+    assert not ip.search("source.ip=1.2.3.45 | user.name=bob {}")
+    assert not ip.search('x {"sample_ips": ["1.2.3.45"]}')
+    assert not ip.search('x {"sample": {"source.ip": "11.2.3.4"}}')
+    assert not ip.search("source.ip=1x2x3x4 {}")  # les points sont littéraux
+
+
 def test_older_detection_moves_first_seen_back():
     from minisoc.alerts import Detection, _update
 
