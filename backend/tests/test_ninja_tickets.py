@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from minisoc.response import ninja_tickets as tickets
 from minisoc.response.ninja_tickets import TicketClient, TicketError
@@ -80,6 +81,11 @@ def test_closed_or_missing_tickets_are_no_longer_followed():
     assert not tickets.is_followed({"id": 5, "status": "CLOSED"})
     gone, note = tickets.updated({"id": 5, "status": "OPEN"}, None)
     assert not tickets.is_followed(gone) and "introuvable" in note
+
+
+def test_open_filter_excludes_closed_and_missing_tickets():
+    sql = str(tickets.open_filter().compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert "ninja_ticket" in sql and "IS NOT NULL" in sql and "NOT IN ('CLOSED', 'MISSING')" in sql
 
 
 def test_draft_has_the_essentials_and_no_raw_logs():

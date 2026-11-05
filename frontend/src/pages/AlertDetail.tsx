@@ -35,6 +35,11 @@ const SEARCHABLE: Record<string, string> = { "source.ip": "ip", "user.name": "us
 const FIELD_LABEL: Record<string, string> = { "event.module": "Source", "host.name": "Machine", "rule.name": "Détection",
   "source.ip": "Adresse IP", "user.name": "Compte" };
 const VISIBLE_VALUES = 6;
+/** Clôture rapide : le choix et le commentaire type restent à enregistrer, et le texte reste modifiable. */
+const CLOSURES: { status: AlertStatus; comments: string[] }[] = [
+  { status: "resolved", comments: ["Cause corrigée, vérification faite.", "Menace neutralisée par l'outil, poste vérifié.", "Utilisateur contacté : situation normale."] },
+  { status: "false_positive", comments: ["Activité légitime vérifiée.", "Erreur d'utilisateur : mot de passe à mettre à jour.", "Détection non pertinente dans notre contexte."] },
+];
 
 /** « source.ip=1.2.3.4 | host.name=PC » → { "source.ip": "1.2.3.4", "host.name": "PC" } */
 function entityParts(entity: string): Record<string, string> {
@@ -519,10 +524,30 @@ function Treatment({ alert, editable, next, onDone }: { alert: Detail; editable:
               </select>
             </label>
           </div>
+          {!CLOSED.includes(alert.status) && (
+            <div className="quick-choices" role="group" aria-label="Clôture rapide">
+              <span className="muted small">Clôturer :</span>
+              {CLOSURES.map((c) => (
+                <button key={c.status} type="button" className={`view-chip ${status === c.status ? "active" : ""}`} aria-pressed={status === c.status}
+                  onClick={() => setStatus(status === c.status ? "" : c.status)}>
+                  {STATUS_LABEL[c.status]}
+                </button>
+              ))}
+            </div>
+          )}
           <label>
             Commentaire {needsComment && <span className="required">(obligatoire pour clôturer)</span>}
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} maxLength={4000} />
           </label>
+          {needsComment && (
+            <div className="quick-choices" role="group" aria-label="Commentaires types">
+              {CLOSURES.find((c) => c.status === nextStatus)?.comments.map((text) => (
+                <button key={text} type="button" className="view-chip" onClick={() => setComment((c) => (c.trim() ? `${c.trim()} ${text}` : text))}>
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
           {saveError && <p className="form-error">{saveError}</p>}
           <div className="treatment-buttons">
             <button type="submit" className="primary" disabled={nothingToSave}>

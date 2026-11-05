@@ -48,12 +48,13 @@ const VERDICTS: { value: string; label: string }[] = [
   { value: "benign", label: "Erreur d'utilisateur" },
 ];
 const PAGE_SIZES = [50, 100, 200, 500];
-const FILTER_KEYS = ["severity_min", "module", "host_kind", "category", "detection", "overdue", "rule_id", "verdict", "assignee", "period", "from", "to", "q"];
+const FILTER_KEYS = ["severity_min", "module", "host_kind", "category", "detection", "overdue", "ticket", "rule_id", "verdict", "assignee", "period", "from", "to", "q"];
 
 interface Facets {
   modules: string[];
   rules: { id: string; name: string }[];
   assignees: string[];
+  tickets?: boolean;
 }
 
 const today = () => new Date().toLocaleDateString("sv-SE"); // AAAA-MM-JJ, heure locale
@@ -102,6 +103,7 @@ export default function Alerts() {
     category: get("category"),
     detection: get("detection"),
     overdue: get("overdue"),
+    ticket: get("ticket"),
     rule_id: get("rule_id"),
     verdict: get("verdict"),
     assignee: get("assignee"),
@@ -232,6 +234,10 @@ export default function Alerts() {
           { label: "Non assignées", active: filters.assignee === "none", apply: { assignee: filters.assignee === "none" ? "" : "none" } },
           { label: "En attente", active: status === "waiting", apply: { status: status === "waiting" ? ACTIVE : "waiting" } },
           { label: "En retard", active: filters.overdue === "true", apply: { overdue: filters.overdue === "true" ? "" : "true" } },
+          // Toutes les alertes, clôturées comprises : un ticket peut rester ouvert après la clôture de son alerte
+          ...(facets?.tickets || filters.ticket
+            ? [{ label: "Ticket ouvert", active: filters.ticket === "open", apply: filters.ticket === "open" ? { ticket: "", status: ACTIVE } : { ticket: "open", status: "" } }]
+            : []),
         ] as { label: string; active: boolean; apply: Record<string, string> }[]).map((v) => (
           <button key={v.label} type="button" className={`view-chip ${v.active ? "active" : ""}`} onClick={() => update(v.apply)}>
             {v.label}

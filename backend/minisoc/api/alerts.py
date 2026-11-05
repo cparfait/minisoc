@@ -20,6 +20,7 @@ from minisoc.ecs import SEVERITY_BY_NAME, severity_name
 from minisoc.followup import FollowupError, apply_update, deadlines, notify_assignee, overdue_filter
 from minisoc.frameworks import describe
 from minisoc.models import ALERT_STATUSES, OPEN_STATUSES, Alert, AlertHistory, User
+from minisoc.response import ninja_tickets
 from minisoc.rules.loader import load_playbook
 from minisoc.settings_store import store as settings_store
 
@@ -197,6 +198,7 @@ async def list_alerts(
     category: str | None = Query(None, pattern="^(threat|hygiene|info)$"),
     host: str | None = Query(None, max_length=256, description="alertes citant cette machine (nom exact)"),
     overdue: bool = Query(False, description="seulement les alertes en retard sur leur échéance"),
+    ticket: str | None = Query(None, pattern="^open$", description="alertes avec un ticket NinjaOne ouvert"),
     account: str | None = Query(None, max_length=256, description="alertes citant ce compte (nom exact)"),
     ip: str | None = Query(None, max_length=64, description="alertes citant cette adresse IP source (adresse exacte)"),
     sort: str = Query("recent"),
@@ -242,6 +244,8 @@ async def list_alerts(
     cfg = await settings_store.load(db)
     if overdue:
         filters.append(overdue_filter(cfg))
+    if ticket:
+        filters.append(ninja_tickets.open_filter())
     if host:
         filters.append((Alert.entity_key + " " + cast(Alert.details, String)).op("~*")(cites("host", host)))
     if account:
@@ -290,6 +294,7 @@ async def alert_facets(db: AsyncSession = Depends(get_db), _: User = Depends(ANY
         "modules": sorted(modules.all()),
         "rules": [{"id": r, "name": n} for r, n in rules.all()],
         "assignees": sorted(assignees.all()),
+        "tickets": ninja_tickets.enabled(await settings_store.load(db)),  # filtre proposé si la fonction est active
     }
 
 

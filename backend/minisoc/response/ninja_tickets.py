@@ -21,6 +21,7 @@ import httpx
 import redis.asyncio as aioredis
 
 from minisoc.connectors.ninjaone import POSTURE_KEY, host
+from minisoc.models import Alert
 
 SCOPE = "monitoring management"
 TIMEOUT = 30
@@ -115,6 +116,12 @@ def state_of(data: dict) -> dict:
         status = {"name": status}
     name = str(status.get("name") or "").upper()
     return {"status": name, "label": str(status.get("displayName") or status.get("name") or "état inconnu")}
+
+
+def open_filter():
+    """Condition SQL : l'alerte porte un ticket ni fermé ni disparu de NinjaOne (même règle que is_followed)."""
+    status = Alert.details["ninja_ticket"]["status"].astext
+    return status.is_not(None) & status.not_in(sorted(CLOSED | {MISSING}))
 
 
 def is_followed(ticket: dict | None) -> bool:
