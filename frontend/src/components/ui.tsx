@@ -1,4 +1,4 @@
-import { CircleAlert, Inbox, type LucideIcon } from "lucide-react";
+import { ChevronRight, CircleAlert, Inbox, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { SEVERITY_LABEL, STATUS_LABEL } from "../labels";
 import type { AlertStatus, MitreTechnique, Severity, Verdict } from "../types";
@@ -66,6 +66,30 @@ export function Card({ title, icon: Icon, children, className = "" }: {
       )}
       {children}
     </section>
+  );
+}
+
+/** Bloc repliable : le titre reste visible, le contenu reste monté (conversation IA, formulaires en cours). */
+export function Fold({ title, icon: Icon, hint, open = false, className = "", children }: {
+  title: string;
+  icon?: LucideIcon;
+  hint?: ReactNode;
+  open?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className={`fold ${className}`} open={open}>
+      <summary>
+        <h2>
+          {Icon && <Icon size={15} strokeWidth={2} />}
+          <span className="fold-title">{title}</span>
+          {hint && <span className="fold-hint">{hint}</span>}
+          <ChevronRight className="fold-chevron" size={15} aria-hidden />
+        </h2>
+      </summary>
+      {children}
+    </details>
   );
 }
 

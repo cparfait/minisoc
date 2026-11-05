@@ -26,7 +26,9 @@ export default function BlockPanel({ alertId, title, candidates }: { alertId: nu
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const ips = useMemo(() => [...new Set(candidates.filter(Boolean))], [candidates]);
+  // Selon le contenu : un nouveau tableau à chaque rendu relancerait la vérification et perdrait la sélection
+  const ipsKey = candidates.join("\n");
+  const ips = useMemo(() => [...new Set(candidates.filter(Boolean))], [ipsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api<Status>("/response/status").then((s) => {

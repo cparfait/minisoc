@@ -1,4 +1,4 @@
-import { CalendarClock, ExternalLink, Eye, Hand } from "lucide-react";
+import { CalendarClock, ExternalLink, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { formatDate, moduleLabel, timeAgo } from "../labels";
@@ -112,12 +112,15 @@ const STEPS: Record<string, string[]> = {
   ],
 };
 
+export const toolActionsTitle = (alert: Alert) =>
+  CALCULATED.has(alert.rule_id) || !alert.modules[0] ? "Où traiter cette alerte" : `Agir dans ${moduleLabel(alert.modules[0])}`;
+
+/** Le titre est porté par le bloc repliable de la fiche d'alerte (toolActionsTitle). */
 export function ToolActions({ alert }: { alert: Alert }) {
   const module = alert.modules[0] ?? "";
   if (CALCULATED.has(alert.rule_id) || !module) {
     return (
       <div className="tool-actions">
-        <h3><Hand size={15} /> Où traiter cette alerte</h3>
         <p className="small">
           Alerte <strong>calculée par le Mini-SOC</strong> (règle {alert.rule_id}) : elle n'existe dans aucun outil, elle se traite et se
           clôture ici. Les alertes d'outils qu'elle cite se traitent chacune dans leur outil.
@@ -132,7 +135,6 @@ export function ToolActions({ alert }: { alert: Alert }) {
   ];
   return (
     <div className="tool-actions">
-      <h3><Hand size={15} /> Agir dans {moduleLabel(module)}</h3>
       <p className="muted small">
         Le Mini-SOC lit les outils sans jamais les modifier.{" "}
         {SYNCED.has(module)

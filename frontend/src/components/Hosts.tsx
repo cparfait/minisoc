@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { formatNumber, moduleLabel } from "../labels";
 import type { EventRow, ImpactedHost } from "../types";
-import { Card } from "./ui";
+import { Fold } from "./ui";
 
 const isServer = (name: string) => /^(srv|svr|serveur|dc|ad|fs|sql|web|app|mail|exch)[-_0-9]/i.test(name);
 const VISIBLE = 8;
@@ -37,9 +37,9 @@ function HostChip({ host }: { host: ImpactedHost }) {
   );
 }
 
-/** Machines concernées (liste des alertes) : la première (serveurs d'abord), puis « +N » ; la liste complète
+/** Machines concernées (liste des alertes) : les premières (serveurs d'abord), puis « +N » ; la liste complète
  * s'affiche au survol. Le panneau est rendu hors du tableau pour ne pas être rogné par le défilement. */
-export function HostChips({ hosts }: { hosts: ImpactedHost[] }) {
+export function HostChips({ hosts, visible = 1 }: { hosts: ImpactedHost[]; visible?: number }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const timer = useRef<number | undefined>(undefined);
   if (!hosts.length) return <span className="muted">—</span>;
@@ -47,6 +47,7 @@ export function HostChips({ hosts }: { hosts: ImpactedHost[] }) {
     (a, b) => Number(isServer(b.name)) - Number(isServer(a.name)) || b.count - a.count || a.name.localeCompare(b.name),
   );
   const servers = sorted.filter((h) => isServer(h.name)).length;
+  const hidden = sorted.slice(visible);
   const open = (e: SyntheticEvent<HTMLElement>) => {
     window.clearTimeout(timer.current);
     setRect(e.currentTarget.getBoundingClientRect());
@@ -58,13 +59,13 @@ export function HostChips({ hosts }: { hosts: ImpactedHost[] }) {
 
   return (
     <span className="host-chips">
-      <HostChip host={sorted[0]} />
-      {sorted.length > 1 && (
-        <button type="button" className={`host-chip more ${servers > 1 || (servers === 1 && !isServer(sorted[0].name)) ? "server" : ""}`}
+      {sorted.slice(0, visible).map((h) => <HostChip key={h.name} host={h} />)}
+      {hidden.length > 0 && (
+        <button type="button" className={`host-chip more ${hidden.some((h) => isServer(h.name)) ? "server" : ""}`}
           aria-label={`${sorted.length} machines concernées`} onMouseEnter={open} onMouseLeave={close} onFocus={open} onBlur={close}
           onClick={(e) => e.stopPropagation()}>
           <Plus size={11} />
-          {sorted.length - 1}
+          {hidden.length}
         </button>
       )}
       {rect &&
@@ -150,12 +151,14 @@ interface Row extends ImpactedHost {
   events: number;
 }
 
-/** Machines concernées par une alerte, en tête de fiche : tableau compact, serveurs d'abord. */
-export function ImpactedHosts({ hosts, events, selected = null, onSelect }: {
+/** Machines concernées par une alerte : tableau compact, serveurs d'abord. Replié s'il n'y a qu'une machine (déjà dans
+ * la synthèse) ou si `folded` (la fiche liste déjà les postes). */
+export function ImpactedHosts({ hosts, events, selected = null, onSelect, folded = false }: {
   hosts: ImpactedHost[];
   events: EventRow[];
   selected?: string | null;
   onSelect?: (host: string | null) => void;
+  folded?: boolean;
 }) {
   const [all, setAll] = useState(false);
   const byHost = new Map<string, { events: number; reference?: string; name: string }>();
@@ -196,12 +199,12 @@ export function ImpactedHosts({ hosts, events, selected = null, onSelect }: {
   const shown = all ? rows : rows.slice(0, VISIBLE);
 
   return (
-    <Card title={`Machines concernées (${rows.length})`} icon={Monitor} className="impacted-card">
-      {servers > 0 && (
-        <p className="impacted-warn">
+    <Fold title={`Machines concernées (${rows.length})`} icon={Monitor} className="card impacted-card" open={rows.length > 1 && !folded}
+      hint={servers > 0 && (
+        <span className="impacted-warn">
           <Server size={15} /> {servers} serveur(s) touché(s) : à traiter en priorité.
-        </p>
-      )}
+        </span>
+      )}>
       {onSelect && rows.length > 1 && (
         <p className="muted small impacted-hint">Cliquer sur une machine pour afficher ses détections dans la levée de doute.</p>
       )}
@@ -277,6 +280,6 @@ export function ImpactedHosts({ hosts, events, selected = null, onSelect }: {
           {all ? "Réduire" : `Afficher les ${rows.length - VISIBLE} autres machines`}
         </button>
       )}
-    </Card>
+    </Fold>
   );
 }

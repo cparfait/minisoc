@@ -1,7 +1,8 @@
 import { ExternalLink, Layers, List, X } from "lucide-react";
 import { Siren } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { lastViewedAlert, markAlertOpened, saveAlertList, takeAlertReturn } from "../alertNav";
 import { api, query } from "../api";
 import { canEdit, useUser } from "../App";
 import { DetectionName, ToolBadge, bitdefenderGroup, detectionName, residualEntity } from "../components/AlertBits";
@@ -84,7 +85,10 @@ export default function Alerts() {
   const view = get("view");
   const pageSize = Number(get("size", "50")) || 50;
   const q = get("q");
-  const [page, setPage] = useState(0);
+  // Page dans l'adresse : le retour depuis le détail d'une alerte la retrouve
+  const page = Math.max(0, (Number(get("page", "1")) || 1) - 1);
+  const [lastViewed] = useState(lastViewedAlert);
+  const restored = useRef(false);
   const [search, setSearch] = useState(q);
   const user = useUser();
   const editable = canEdit(user);
@@ -103,10 +107,11 @@ export default function Alerts() {
     assignee: get("assignee"),
     q,
   };
+  const listParams = () => ({ status, ...filters, ...bounds(period, from, to), sort });
   const { data, error, reload } = usePolling(
     () =>
       api<{ total: number; by_status: Partial<Record<AlertStatus, number>>; items: Alert[] }>(
-        `/alerts${query({ status, ...filters, ...bounds(period, from, to), sort, limit: pageSize, offset: page * pageSize })}`,
+        `/alerts${query({ ...listParams(), limit: pageSize, offset: page * pageSize })}`,
       ),
     [status, period, from, to, sort, pageSize, page, ...Object.values(filters)],
     15000,
@@ -114,25 +119,53 @@ export default function Alerts() {
 
   const update = (changes: Record<string, string>) => {
     const next = new URLSearchParams(params);
+    next.delete("page"); // un filtre ou un tri qui change repart de la première page
     for (const [key, value] of Object.entries(changes)) {
       if (value) next.set(key, value);
       else next.delete(key);
       if (key === "status" && !value) next.set("status", "");
     }
     setParams(next);
-    setPage(0);
+  };
+  const setPage = (index: number) => {
+    const next = new URLSearchParams(params);
+    if (index > 0) next.set("page", String(index + 1));
+    else next.delete("page");
+    setParams(next);
   };
   const filtered = FILTER_KEYS.some((k) => params.get(k));
   const reset = () => {
     const next = new URLSearchParams(params);
     FILTER_KEYS.forEach((k) => next.delete(k));
+    next.delete("page");
     setParams(next);
     setSearch("");
-    setPage(0);
   };
   const countOf = (statuses: AlertStatus[]) =>
     data ? statuses.reduce((sum, s) => sum + (data.by_status[s] ?? 0), 0) : null;
   const pages = data ? Math.ceil(data.total / pageSize) : 0;
+  const listSearch = params.toString() ? `?${params.toString()}` : "";
+
+  // Le détail d'une alerte connaît ainsi ses voisines et le chemin du retour
+  useEffect(() => {
+    if (!data) return;
+    saveAlertList({ search: listSearch, apiQuery: query(listParams()), ids: data.items.map((a) => a.id), offset: page * pageSize, total: data.total, pageSize });
+    // Page devenue vide (alertes clôturées entre-temps) : retour à la dernière page
+    if (page > 0 && !data.items.length && data.total > 0) setPage(pages - 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  // Retour depuis le détail : la dernière alerte consultée, sinon (sortie de la liste) le même défilement
+  useLayoutEffect(() => {
+    if (!data || restored.current) return;
+    restored.current = true;
+    const back = takeAlertReturn();
+    if (!back) return;
+    const row = document.getElementById(`alert-row-${back.id}`);
+    if (row) row.scrollIntoView({ block: "center" });
+    else if (back.y !== undefined && back.search === listSearch) window.scrollTo(0, back.y);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   return (
     <>
@@ -353,7 +386,7 @@ export default function Alerts() {
           </thead>
           <tbody>
             {data?.items.map((a) => (
-              <tr key={a.id} className={selected.has(a.id) ? "selected" : ""}>
+              <tr key={a.id} id={`alert-row-${a.id}`} className={`${selected.has(a.id) ? "selected" : ""} ${a.id === lastViewed ? "last-viewed" : ""}`}>
                 {editable && (
                   <td>
                     <input
@@ -379,7 +412,7 @@ export default function Alerts() {
                   {a.modules.length ? a.modules.map((m) => <ToolBadge key={m} module={m} />) : <ToolBadge />}
                 </td>
                 <td className="alert-cell">
-                  <Link to={`/alerts/${a.id}`} title={a.title}>
+                  <Link to={`/alerts/${a.id}`} title={a.title} onClick={() => markAlertOpened(a.id, listSearch)}>
                     <DetectionName name={detectionName(a)} />
                   </Link>{" "}
                   <VerdictBadge verdict={a.verdict} label={a.verdict_label} />

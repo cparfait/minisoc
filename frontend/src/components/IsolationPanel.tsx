@@ -24,7 +24,8 @@ export default function IsolationPanel({ alertId, onDone }: { alertId: number; o
     api<{ enabled: boolean; targets: Target[] }>(`/response/isolation/${alertId}`).then(setData).catch(() => setData(null));
   }, [alertId]);
 
-  if (!data || !data.targets.length) return null;
+  if (!data) return null;
+  if (!data.targets.length) return <p className="muted small">Aucun poste isolable identifié dans cette alerte.</p>;
 
   const submit = async () => {
     if (!selected) return;

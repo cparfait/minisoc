@@ -245,7 +245,6 @@ a.kpi:hover { color: var(--text); transform: translateY(-2px); border-color: col
 .sev-critical::before { animation: dot-pulse 2s ease-in-out infinite; }
 @keyframes dot-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 25%, transparent); } }
 
-.qualification h2 { display: flex; align-items: center; gap: 10px; text-transform: none; letter-spacing: 0; color: var(--text); font-size: 15px; }
 .qualification ul { margin: 0 0 8px; padding-left: 20px; }
 .verdict-box-attack { border-left: 3px solid var(--critical); }
 .verdict-box-suspicious { border-left: 3px solid var(--medium); }
@@ -365,8 +364,7 @@ tr.selected td { background: color-mix(in srgb, var(--accent) 9%, transparent); 
 /* ---------- Exceptions ---------- */
 .exception-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end; }
 .exception-form .span-2 { grid-column: span 3; }
-.exception-box, .incident-box { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.incident-box h3 { margin: 0 0 8px; font-size: 14px; }
+.exception-box { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .exception-inline .row { flex-wrap: wrap; }
 
 /* ---------- Connexion ---------- */
