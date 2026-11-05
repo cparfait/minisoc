@@ -19,12 +19,15 @@ export default function IsolationPanel({ alertId, onDone }: { alertId: number; o
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ enabled: boolean; targets: Target[] }>(`/response/isolation/${alertId}`).then(setData).catch(() => setData(null));
+    api<{ enabled: boolean; targets: Target[] }>(`/response/isolation/${alertId}`).then(setData)
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
   }, [alertId]);
 
-  if (!data) return null;
+  if (loadError) return <p className="form-error">Postes isolables indisponibles : {loadError}</p>;
+  if (!data) return <p className="muted small">Recherche des postes isolables…</p>;
   if (!data.targets.length) return <p className="muted small">Aucun poste isolable identifié dans cette alerte.</p>;
 
   const submit = async () => {

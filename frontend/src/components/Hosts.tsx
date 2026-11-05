@@ -9,6 +9,8 @@ import type { EventRow, ImpactedHost } from "../types";
 import { Fold } from "./ui";
 
 const isServer = (name: string) => /^(srv|svr|serveur|dc|ad|fs|sql|web|app|mail|exch)[-_0-9]/i.test(name);
+/** Serveur selon l'inventaire ; à défaut (machine absente de l'inventaire), d'après son nom. */
+const isServerHost = (h: Pick<ImpactedHost, "name" | "asset_type">) => h.asset_type === "serveur" || (!h.asset_type && isServer(h.name));
 const VISIBLE = 8;
 
 const POPOVER_MAX = 40;
@@ -26,7 +28,7 @@ const hostTitle = (h: ImpactedHost) =>
     h.rules.join(" · ")].filter(Boolean).join("\n");
 
 function HostChip({ host }: { host: ImpactedHost }) {
-  const server = isServer(host.name);
+  const server = isServerHost(host);
   return (
     <Link to={`/assets/host/${encodeURIComponent(host.name)}`} className={`host-chip ${server ? "server" : ""}`}
       title={hostTitle(host)} onClick={(e) => e.stopPropagation()}>
@@ -44,9 +46,9 @@ export function HostChips({ hosts, visible = 1 }: { hosts: ImpactedHost[]; visib
   const timer = useRef<number | undefined>(undefined);
   if (!hosts.length) return <span className="muted">—</span>;
   const sorted = [...hosts].sort(
-    (a, b) => Number(isServer(b.name)) - Number(isServer(a.name)) || b.count - a.count || a.name.localeCompare(b.name),
+    (a, b) => Number(isServerHost(b)) - Number(isServerHost(a)) || b.count - a.count || a.name.localeCompare(b.name),
   );
-  const servers = sorted.filter((h) => isServer(h.name)).length;
+  const servers = sorted.filter(isServerHost).length;
   const hidden = sorted.slice(visible);
   const open = (e: SyntheticEvent<HTMLElement>) => {
     window.clearTimeout(timer.current);
@@ -61,7 +63,7 @@ export function HostChips({ hosts, visible = 1 }: { hosts: ImpactedHost[]; visib
     <span className="host-chips">
       {sorted.slice(0, visible).map((h) => <HostChip key={h.name} host={h} />)}
       {hidden.length > 0 && (
-        <button type="button" className={`host-chip more ${hidden.some((h) => isServer(h.name)) ? "server" : ""}`}
+        <button type="button" className={`host-chip more ${hidden.some(isServerHost) ? "server" : ""}`}
           aria-label={`${sorted.length} machines concernées`} onMouseEnter={open} onMouseLeave={close} onFocus={open} onBlur={close}
           onClick={(e) => e.stopPropagation()}>
           <Plus size={11} />
@@ -175,7 +177,7 @@ export function ImpactedHosts({ hosts, events, selected = null, onSelect, folded
   }
   const rows: Row[] = hosts.map((h) => {
     const extra = byHost.get(h.name.toLowerCase());
-    return { ...h, server: h.asset_type === "serveur" || (!h.asset_type && isServer(h.name)), reference: extra?.reference, events: extra?.events ?? 0 };
+    return { ...h, server: isServerHost(h), reference: extra?.reference, events: extra?.events ?? 0 };
   });
   for (const [key, v] of byHost) {
     if (!rows.some((r) => r.name.toLowerCase() === key)) {
@@ -199,7 +201,7 @@ export function ImpactedHosts({ hosts, events, selected = null, onSelect, folded
   const shown = all ? rows : rows.slice(0, VISIBLE);
 
   return (
-    <Fold title={`Machines concernées (${rows.length})`} icon={Monitor} className="card impacted-card" open={rows.length > 1 && !folded}
+    <Fold title={`Machines concernées (${rows.length})`} icon={Monitor} className="card impacted-card" defaultOpen={rows.length > 1 && !folded}
       hint={servers > 0 && (
         <span className="impacted-warn">
           <Server size={15} /> {servers} serveur(s) touché(s) : à traiter en priorité.

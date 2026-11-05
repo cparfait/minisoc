@@ -593,8 +593,8 @@ a.vpn-service:hover { filter: brightness(1.35); text-decoration: underline; }
 .alert-actions > h2 + .rail-fold { border-top: none; }
 .tool-actions > p:first-child { margin-top: 0; }
 .alert-actions .exception-box { margin-top: 0; padding-top: 10px; }
-.alert-incident { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
-.alert-incident svg { color: var(--accent); }
+.alert-incident { margin: 0; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.alert-incident svg { color: var(--accent); vertical-align: -3px; margin-right: 4px; }
 .alert-incident .incident-badge { margin-left: 0; }
 .playbook .markdown { font-size: 13px; line-height: 1.55; }
 .playbook .markdown .md-heading { margin-top: 14px; font-size: 13.5px; }

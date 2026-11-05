@@ -1,5 +1,5 @@
 import { ChevronRight, CircleAlert, Inbox, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { SEVERITY_LABEL, STATUS_LABEL } from "../labels";
 import type { AlertStatus, MitreTechnique, Severity, Verdict } from "../types";
 
@@ -69,15 +69,17 @@ export function Card({ title, icon: Icon, children, className = "" }: {
   );
 }
 
-/** Bloc repliable : le titre reste visible, le contenu reste monté (conversation IA, formulaires en cours). */
-export function Fold({ title, icon: Icon, hint, open = false, className = "", children }: {
+/** Bloc repliable : le titre reste visible, le contenu reste monté (conversation IA, formulaires en cours).
+ * `defaultOpen` ne compte qu'à l'ouverture de la page : ensuite, seul l'analyste plie ou déplie le bloc. */
+export function Fold({ title, icon: Icon, hint, defaultOpen = false, className = "", children }: {
   title: string;
   icon?: LucideIcon;
   hint?: ReactNode;
-  open?: boolean;
+  defaultOpen?: boolean;
   className?: string;
   children: ReactNode;
 }) {
+  const [open] = useState(defaultOpen);
   return (
     <details className={`fold ${className}`} open={open}>
       <summary>

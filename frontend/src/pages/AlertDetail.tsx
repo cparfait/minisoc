@@ -135,7 +135,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
             ips={[...blockCandidates, String(sample["source.ip"] ?? "")]}
           />
           {editable && (
-            <Fold title="Assistant IA" icon={Sparkles} className="card" open>
+            <Fold title="Assistant IA" icon={Sparkles} className="card" defaultOpen>
               <AIConversation
                 key={alert.id}
                 path={`/ai/alerts/${alert.id}/analyze`}
@@ -160,7 +160,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
             </Fold>
             {editable && blockCandidates.length > 0 && (
               <Fold title="Bloquer sur le pare-feu" icon={Ban} className="rail-fold" hint={`${formatNumber(blockCandidates.length)} IP`}
-                open={open && qualification?.verdict === "attack" && blockCandidates.length <= 10}>
+                defaultOpen={open && qualification?.verdict === "attack" && blockCandidates.length <= 10}>
                 <BlockPanel key={alert.id} alertId={alert.id} title={alert.title} candidates={blockCandidates} />
               </Fold>
             )}
@@ -185,7 +185,7 @@ function AlertView({ id, neighbours }: { id: string; neighbours: AlertNeighbours
             )}
           </Card>
 
-          <Fold title="Fiche réflexe" icon={BookOpen} className="card playbook" open>
+          <Fold title="Fiche réflexe" icon={BookOpen} className="card playbook" defaultOpen>
             {alert.playbook ? (
               // Rendu en éléments React : aucun HTML interprété ; le titre de la fiche redit celui du bloc
               <Markdown text={alert.playbook.replace(/^#\s+.*\n+/, "")} />
@@ -245,7 +245,8 @@ function StepLink({ to, label, children }: { to: number | null; label: string; c
   return <Link to={`/alerts/${to}`} className="alert-step" title={label} aria-label={label}>{children}</Link>;
 }
 
-/** Valeurs liées à leurs événements, les premières seulement : la liste complète est au survol du compteur. */
+/** Valeurs liées à leurs événements, les premières seulement ; le reste est au survol. Ces valeurs viennent d'échantillons
+ * limités (10 comptes, 20 IP, événements conservés) : leur nombre n'est pas le total de l'alerte. */
 function LinkedValues({ values, param, none, tags = {} }: { values: string[]; param: string; none: string; tags?: Record<string, string> }) {
   if (!values.length) return <span className="muted">{none}</span>;
   const rest = values.slice(VISIBLE_VALUES);
@@ -257,7 +258,7 @@ function LinkedValues({ values, param, none, tags = {} }: { values: string[]; pa
           {tags[v] && <span className="geo-tag">{tags[v]}</span>}
         </span>
       ))}
-      {rest.length > 0 && <span className="muted small" title={rest.slice(0, 200).join("\n")}>+ {formatNumber(rest.length)} autres</span>}
+      {rest.length > 0 && <span className="muted small" title={rest.slice(0, 200).join("\n")}>et au moins {formatNumber(rest.length)} autres</span>}
     </span>
   );
 }
@@ -323,11 +324,11 @@ function AlertSummary({ alert, qualification, entity, sample, groupedIps }: {
           </dd>
         </div>
         <div>
-          <dt>Comptes ({users.length})</dt>
+          <dt>Comptes</dt>
           <dd><LinkedValues values={users} param="user" none="aucun identifié" /></dd>
         </div>
         <div>
-          <dt>Adresses IP ({ips.length})</dt>
+          <dt>Adresses IP</dt>
           <dd><LinkedValues values={ips} param="ip" none="aucune identifiée" tags={countries} /></dd>
         </div>
         <div>
@@ -531,7 +532,7 @@ function GroupedEntities({ alert, grouped, editable, onDone }: {
   const [error, setError] = useState<string | null>(null);
   const fields = [...new Set(grouped.flatMap(([entity]) => Object.keys(entityParts(entity))))].filter((f) => !f.startsWith("*"));
   return (
-    <Fold title={`Entités regroupées (${formatNumber(grouped.length)})`} icon={Layers} className="card" open>
+    <Fold title={`Entités regroupées (${formatNumber(grouped.length)})`} icon={Layers} className="card" defaultOpen>
       <p className="muted small">
         Trop d'alertes distinctes en peu de temps pour cette règle : les nouvelles entités sont regroupées ici au lieu
         de créer une alerte (et une notification) chacune.
